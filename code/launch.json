@@ -1,0 +1,51 @@
+{
+    // Use IntelliSense to learn about possible attributes.
+    // Hover to view descriptions of existing attributes.
+    // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Main - Train model",
+            "type": "python",
+            "request": "launch",
+            "program": "/home/student/final_project/my_code_new/main.py",
+            "console": "integratedTerminal",
+            "justMyCode": true,
+            "args": [
+                "--action", "baseline",
+                "--dataset", "gtea",
+                "--split", "1",
+                "--features_dim", "1316",
+                "--batch_size", "1",
+                "--lr", "0.0005",
+                "--num_f_maps", "65",            
+                "--num_epochs", "6",
+                "--num_layers_PG", "10",
+                "--num_layers_R", "10",
+                "--num_R", "3"
+            ]
+        },
+        {
+            "name": "eval - evaluation",
+            "type": "python",
+            "request": "launch",
+            "program": "/home/student/final_project/my_code_new/eval.py",
+            "console": "integratedTerminal",
+            "justMyCode": true,
+            "args": [
+                "--dataset", "gtea",
+                "--split", "1",
+                "--results_path", "/home/student/final_project/results/exp2",
+                "--exp_name", "Final-NoGRU_NotClassWeighted_Sample size 1"
+            ]
+        },
+        {
+            "name": "temp",
+            "type": "python",
+            "request": "launch",
+            "program": "/home/student/final_project/my_code_new/temp.py",
+            "console": "integratedTerminal",
+            "justMyCode": true
+        }
+    ]
+}
