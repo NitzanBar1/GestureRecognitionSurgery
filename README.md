@@ -32,8 +32,7 @@ This is a class project as part of 097222 Computer Vision Seminar @ Technion.
 
 
 ## Dataset
-![alt text](https://github.com/NitzanBar1/SurgeryToolsDetection/blob/main/images/vis.png)
-![alt text](https://github.com/NitzanBar1/SurgeryToolsDetection/blob/main/images/insights.png)
+
 
 
 
@@ -59,7 +58,7 @@ The models were compiled in Microsoft Azure using PyTorch packages with 25 epoch
 ![alt text](https://github.com/NitzanBar1/SurgeryToolsDetection/blob/main/images/graphs2.png)
 
 Model detections:  
-![alt text](https://github.com/NitzanBar1/SurgeryToolsDetection/blob/main/images/results.png)
+
 
 Evaluation metrics:  
 
