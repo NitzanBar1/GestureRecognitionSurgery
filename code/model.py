@@ -29,11 +29,11 @@ class MS_TCN2_GRU(nn.Module):
         for i, R in enumerate(self.Rs):
             out = R(F.softmax(out, dim=1))
             outputs = torch.cat((outputs, out.unsqueeze(0)), dim=0)
-        self.sample_size=5
-        out = F.interpolate(F.softmax(out, dim=1), int(out.shape[-1] / self.sample_size))
+        self.sample_size = 5
+        out = F.interpolate(F.softmax(out, dim=1), int(out.shape[-1] / self.sample_size))  # down sampling
         out = self.gru(out.transpose(2, 1))[0].squeeze(0)
         out = self.hidden_to_label(out).unsqueeze(0).transpose(1, 2)
-        outputs = torch.cat((outputs, F.interpolate(out, outputs.shape[-1]).unsqueeze(0)), dim=0)
+        outputs = torch.cat((outputs, F.interpolate(out, outputs.shape[-1]).unsqueeze(0)), dim=0)  # up sampling
         return outputs
 
 
@@ -55,11 +55,11 @@ class MS_TCN2(nn.Module):
         out = self.PG(x)
         outputs = out.unsqueeze(0)
         for i, R in enumerate(self.Rs):
-            if self.gru_flag and i == 1 and not self.weighted:
-                out = self.gru(F.softmax(out, dim=1).transpose(2, 1))[0].squeeze(0)
-                out = self.hidden_to_label(out).unsqueeze(0).transpose(1, 2)
-            else:
-                out = R(F.softmax(out, dim=1))
+            # if self.gru_flag and i == 1 and not self.weighted:
+            #     out = self.gru(F.softmax(out, dim=1).transpose(2, 1))[0].squeeze(0)
+            #     out = self.hidden_to_label(out).unsqueeze(0).transpose(1, 2)
+            # else:
+            out = R(F.softmax(out, dim=1))
             outputs = torch.cat((outputs, out.unsqueeze(0)), dim=0)
         return outputs
 
@@ -178,17 +178,18 @@ class Trainer:
         gru: add a GRU layer as the output layer
         final_gru: MSTCN++ with final GRU layer & interpolation
         sample_size: sample size for interpolation
-        """
+        """  # Choose the desired model
         if final_gru:
             self.model = MS_TCN2_GRU(num_layers_PG, num_layers_R, num_R, num_f_maps, dim, num_classes,
                                      sample_size=sample_size)
         else:
             self.model = MS_TCN2(num_layers_PG, num_layers_R, num_R, num_f_maps, dim, num_classes, weighted, gru)
+
         if class_weights is not None:
             self.ce = nn.CrossEntropyLoss(weight=class_weights, ignore_index=-100)
         else:
             self.ce = nn.CrossEntropyLoss(ignore_index=-100)
-        
+
         self.mse = nn.MSELoss(reduction='none')
         self.num_classes = num_classes
         self.fold = split
@@ -241,7 +242,14 @@ class Trainer:
                                   iteration=epoch + 1,
                                   value=(float(f1s_train[k]) / len(batch_gen_train.list_of_examples)))
 
-    def train(self, save_dir, batch_gen_train, batch_gen_val, num_epochs, batch_size, learning_rate, device, clogger):
+    def l2_regularization_loss(self, lambda_l2):
+        l2_loss = 0.0
+        for param in self.model.parameters():
+            l2_loss += torch.norm(param, p=2) ** 2
+        return 0.5 * lambda_l2 * l2_loss
+
+    def train(self, save_dir, batch_gen_train, batch_gen_val, num_epochs, batch_size, learning_rate, device, clogger,
+              lambda_l2):
         self.model.train()
         self.model.to(device)
         optimizer = optim.Adam(self.model.parameters(), lr=learning_rate)
@@ -282,13 +290,21 @@ class Trainer:
                         loss += temp * self.model.Ws[i]
 
                     else:
-                        loss += self.ce(p.transpose(2, 1).contiguous().view(-1, self.num_classes), batch_target.view(-1))
+                        loss += self.ce(p.transpose(2, 1).contiguous().view(-1, self.num_classes),
+                                        batch_target.view(-1))
                         loss += 0.15 * torch.mean(torch.clamp(
                             self.mse(F.log_softmax(p[:, :, 1:], dim=1), F.log_softmax(p.detach()[:, :, :-1], dim=1)),
                             min=0, max=16) * mask[:, :, 1:])
                         if self.kl:
                             loss += 0.5 * torch.mean(F.softmax(p[:, :, 1:], dim=1) * (
                                     F.log_softmax(p[:, :, 1:], dim=1) - F.log_softmax(p.detach()[:, :, :-1], dim=1)))
+
+                # Compute L2 regularization loss
+                l2_regularization_loss = self.l2_regularization_loss(lambda_l2)
+
+                # Compute total loss
+                loss += l2_regularization_loss
+
                 batch_loss += loss / 5
                 epoch_loss_train += loss.item()
                 if batch_i % 5 == 0:
@@ -302,7 +318,8 @@ class Trainer:
                 tp, fp, fn = np.zeros(3), np.zeros(3), np.zeros(3)
 
                 for s in range(len(self.overlap)):
-                    tp1, fp1, fn1 = f_score(predicted.view(-1).tolist(), batch_target.view(-1).tolist(), self.overlap[s],
+                    tp1, fp1, fn1 = f_score(predicted.view(-1).tolist(), batch_target.view(-1).tolist(),
+                                            self.overlap[s],
                                             train=True)
                     tp[s] += tp1
                     fp[s] += fp1
@@ -355,7 +372,8 @@ class Trainer:
                 total_val += torch.sum(mask[:, 0, :]).item()
                 tp, fp, fn = np.zeros(3), np.zeros(3), np.zeros(3)
                 for s in range(len(self.overlap)):
-                    tp1, fp1, fn1 = f_score(predicted.view(-1).tolist(), batch_target.view(-1).tolist(), self.overlap[s],
+                    tp1, fp1, fn1 = f_score(predicted.view(-1).tolist(), batch_target.view(-1).tolist(),
+                                            self.overlap[s],
                                             train=True)
                     tp[s] += tp1
                     fp[s] += fp1
@@ -376,8 +394,8 @@ class Trainer:
                 torch.save(optimizer.state_dict(), save_dir + "/best.opt")
 
             self.clear_ml_reporter(clogger, epoch, epoch_loss_train, batch_gen_train, epoch_loss_val, batch_gen_val,
-                              correct_train, total_train, correct_val, total_val, edit_score_val, edit_score_train,
-                              f1s_train, f1s_val)
+                                   correct_train, total_train, correct_val, total_val, edit_score_val, edit_score_train,
+                                   f1s_train, f1s_val)
 
             logger.info(
                 "[epoch %d]: epoch loss train set = %f,   acc_train = %f" % (
@@ -389,7 +407,6 @@ class Trainer:
                     float(correct_val) / total_val))
 
         logger.info(f"{self.exp_name} Run: Best Validation F1@50 = %f at epoch = %f" % (best_f1, best_epoch + 1))
-
 
     def predict(self, model_dir, results_dir, features_path, vid_list_file, epoch, actions_dict, device, sample_rate):
         """ Run infernce"""
