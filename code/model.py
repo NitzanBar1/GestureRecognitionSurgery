@@ -13,7 +13,7 @@ from tqdm import tqdm
 
 
 class MS_TCN2_GRU(nn.Module):
-    def __init__(self, num_layers_PG, num_layers_R, num_R, num_f_maps, dim, num_classes, sample_size=5):
+    def __init__(self, num_layers_PG, num_layers_R, num_R, num_f_maps, dim, num_classes, sample_size=5, upsample=True):
         super(MS_TCN2_GRU, self).__init__()
         self.PG = Prediction_Generation(num_layers_PG, num_f_maps, dim, num_classes)
         self.Rs = nn.ModuleList(
@@ -28,7 +28,12 @@ class MS_TCN2_GRU(nn.Module):
         outputs = out.unsqueeze(0)
         for i, R in enumerate(self.Rs):
             out = R(F.softmax(out, dim=1))
+            #####################################
+            if self.upsample:
+                out = self.deconv(out)
+            #####################################
             outputs = torch.cat((outputs, out.unsqueeze(0)), dim=0)
+
         self.sample_size = 5
         out = F.interpolate(F.softmax(out, dim=1), int(out.shape[-1] / self.sample_size))  # down sampling
         out = self.gru(out.transpose(2, 1))[0].squeeze(0)
@@ -99,17 +104,37 @@ class Prediction_Generation(nn.Module):
 
 
 class Refinement(nn.Module):
-    def __init__(self, num_layers, num_f_maps, dim, num_classes):
+    def __init__(self, num_layers, num_f_maps, dim, num_classes, att=True, upsample=False):
         super(Refinement, self).__init__()
         self.conv_1x1 = nn.Conv1d(dim, num_f_maps, 1)
         self.layers = nn.ModuleList(
             [copy.deepcopy(DilatedResidualLayer(2 ** i, num_f_maps, num_f_maps)) for i in range(num_layers)])
         self.conv_out = nn.Conv1d(num_f_maps, num_classes, 1)
+        self.att = att
+        if att:
+            self.attention = nn.MultiheadAttention(num_f_maps, num_heads=5,
+                                                   batch_first=True)  # num_f_maps must be divisible by num_heads
+            self.layer_norm = nn.LayerNorm(num_f_maps)
+        self.upsample = upsample
+        if upsample:
+            self.deconv = nn.ConvTranspose1d(num_f_maps, num_f_maps, kernel_size=3, stride=2, padding=1,
+                                             output_padding=1)
 
     def forward(self, x):
         out = self.conv_1x1(x)
         for layer in self.layers:
             out = layer(out)
+        if self.att:
+            # reshape for multi-head attention
+            out = out.permute(0, 2, 1)  # [batch_size, sequence_length, feature_dimension]
+            # apply multi-head attention
+            out, _ = self.attention(out, out, out)
+            # apply layer normalization
+            out = self.layer_norm(out)
+            # reshape back to original shape
+            out = out.permute(0, 2, 1)  # [batch_size, feature_dimension, sequence_length]
+        if self.upsample:
+            self.deconv(out)
         out = self.conv_out(out)
         return out
 
