@@ -136,7 +136,7 @@ class Refinement(nn.Module):
         #     self.conv_out_refine3 = nn.Conv1d(num_f_maps, num_classes, 1)
         #     self.relu = nn.ReLU(inplace=True)
 
-    def forward(self, x, current_layer, total_layers):
+    def forward(self, x, current_layer, total_layers, scale_factor=0.25):
         out = self.conv_1x1(x)
         for layer in self.layers:
             out = layer(out)
@@ -151,7 +151,7 @@ class Refinement(nn.Module):
         if current_layer >= total_layers - 1:  # Amount of layers to perform the new architecture
             if self.att:
                 # Down sampling to reduce attention matrix
-                out_att = nn.functional.interpolate(out, scale_factor=0.5, mode='linear', align_corners=False)
+                out_att = nn.functional.interpolate(out, scale_factor=scale_factor, mode='linear', align_corners=False)
                 # reshape for multi-head attention
                 out_att = out_att.permute(0, 2, 1)  # [batch_size, sequence_length, feature_dimension]
                 # apply multi-head attention
@@ -160,18 +160,20 @@ class Refinement(nn.Module):
                 out_att = self.layer_norm(out_att)
                 # reshape back to original shape
                 out_att = out_att.permute(0, 2, 1)  # [batch_size, feature_dimension, sequence_length]
-                # Upsample after attention
-                out_att = nn.functional.interpolate(out_att, size=x.shape[-1], mode='linear', align_corners=False)
 
                 if self.lstm_att:
+                    out = nn.functional.interpolate(out, scale_factor=scale_factor, mode='linear', align_corners=False)
                     out = torch.cat((out, out_att), dim=1)
                     # out = F.max_pool1d(out, kernel_size=self.downsample_factor, stride=self.downsample_factor)
                     out = out.permute(0, 2, 1)
                     out, _ = self.lstm_layer(out)  # apply LSTM layer
-
-                    out = self.conv_out(out.permute(0, 2, 1))  # (batch_size, num_classes, seq_length)
+                    out = out.permute(0, 2, 1)
+                    out = nn.functional.interpolate(out, size=x.shape[-1], mode='linear', align_corners=False)
+                    out = self.conv_out(out)  # (batch_size, num_classes, seq_length)
                     return out
                 else:
+                    # Upsample after attention
+                    out_att = nn.functional.interpolate(out_att, size=x.shape[-1], mode='linear', align_corners=False)
                     out_att = self.conv_out(out_att)
                     return self.conv_out(out_att)
             else:
