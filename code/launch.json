@@ -12,14 +12,13 @@
             "console": "integratedTerminal",
             "justMyCode": true,
             "args": [
-                "--action", "baseline",
-                "--dataset", "gtea",
+                "--action", "train",
                 "--split", "1",
-                "--features_dim", "1316",
+                "--features_dim", "1280",
                 "--batch_size", "1",
                 "--lr", "0.0005",
                 "--num_f_maps", "65",            
-                "--num_epochs", "6",
+                "--num_epochs", "10",
                 "--num_layers_PG", "10",
                 "--num_layers_R", "10",
                 "--num_R", "3"
@@ -33,10 +32,9 @@
             "console": "integratedTerminal",
             "justMyCode": true,
             "args": [
-                "--dataset", "gtea",
                 "--split", "1",
-                "--results_path", "/home/student/final_project/results/exp2",
-                "--exp_name", "Final-NoGRU_NotClassWeighted_Sample size 1"
+                "--results_path", "/home/student/final_project/results/exp17",
+                "--exp_name", "NotClassWeighted_Sample size 1"
             ]
         },
         {
