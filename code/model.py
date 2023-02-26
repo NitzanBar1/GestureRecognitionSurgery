@@ -28,10 +28,6 @@ class MS_TCN2_Modified(nn.Module):
                 Refinement(num_layers=num_layers_R, num_f_maps=num_f_maps, num_classes=num_classes, dim=num_classes,
                            attention=attention, lstm=lstm, lstm_att=lstm_att)) for s in
                 range(num_R)])
-        #   Added by us
-        self.gru = nn.GRU(input_size=6, batch_first=True, hidden_size=64, num_layers=3, dropout=0.1, bidirectional=True)
-        self.hidden_to_label = nn.Linear(in_features=128, out_features=6)
-        self.sample_size = sample_size
 
     def forward(self, x):
         out = self.PG(x)
@@ -126,13 +122,13 @@ class Refinement(nn.Module):
                                                    batch_first=True)  # num_f_maps must be divisible by num_heads
             self.layer_norm = nn.LayerNorm(num_f_maps)
         self.upsample = upsample
-        if upsample:
-            self.deconv = nn.ConvTranspose1d(num_f_maps, num_f_maps, kernel_size=3, stride=2, padding=1,
-                                             output_padding=1)
-            self.conv_out_refine = nn.Conv1d(num_f_maps, num_f_maps, 3, padding=1)
-            self.conv_out_refine2 = nn.Conv1d(num_f_maps, num_f_maps, 3, padding=1)
-            self.conv_out_refine3 = nn.Conv1d(num_f_maps, num_classes, 1)
-            self.relu = nn.ReLU(inplace=True)
+        # if upsample:
+        #     self.deconv = nn.ConvTranspose1d(num_f_maps, num_f_maps, kernel_size=3, stride=2, padding=1,
+        #                                      output_padding=1)
+        #     self.conv_out_refine = nn.Conv1d(num_f_maps, num_f_maps, 3, padding=1)
+        #     self.conv_out_refine2 = nn.Conv1d(num_f_maps, num_f_maps, 3, padding=1)
+        #     self.conv_out_refine3 = nn.Conv1d(num_f_maps, num_classes, 1)
+        #     self.relu = nn.ReLU(inplace=True)
 
     def forward(self, x, current_layer, total_layers):
         out = self.conv_1x1(x)
@@ -140,9 +136,10 @@ class Refinement(nn.Module):
             out = layer(out)
 
         if self.upsample:
-            out = self.deconv(out)
-            out = self.relu(self.conv_out_refine(out))
-            out = self.relu(self.conv_out_refine2(out))
+            # out = self.deconv(out)
+            # out = self.relu(self.conv_out_refine(out))
+            # out = self.relu(self.conv_out_refine2(out))
+            pass
             # out = self.conv_out_refine3(out)
 
         if current_layer >= total_layers - 1:  # Amount of layers to perform the new architecture
