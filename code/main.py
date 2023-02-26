@@ -62,7 +62,10 @@ def run_train(val_path_fold, test_path_fold, features_path_fold, kinematic_featu
     fold_num = features_path_fold.split("/")[-2]
     print(f"\t{fold_num}")
     labels = ['G0', 'G1', 'G2', 'G3', 'G4', 'G5']
-    class_weights = reweighting_loss_calculation(true_labels_dir, labels=labels, technique='IPW')
+    if weighted_flag:
+        class_weights = reweighting_loss_calculation(true_labels_dir, labels=labels, technique='IPW')
+    else:
+        class_weights = None
 
     num_classes = len(labels)
 
@@ -196,7 +199,7 @@ def main():
                       batch_size=batch_size, lr=lr, features_dim=features_dim,
                       clogger=clogger, sample_rate=sample_rate,
 					  model_type='mstcn2', sample_size=1,                      
-                      label_class_weights=True, weighted_flag=False,
+                      label_class_weights=False, weighted_flag=False,
                       ridge_reg=False, attention=True,
                       lstm=False, lstm_att=True)
 
