@@ -370,14 +370,16 @@ class Trainer:
                         cur_pred_loss = cur_pred_loss * self.model.Ws[i]
                     loss += cur_pred_loss
 
+
+                ####################################################################################################
+                # Calculate every couple of batches of size 1
+
                 # Compute L2 regularization loss
                 if self.ridge_reg:
                     l2_regularization_loss = self.l2_regularization_loss(lambda_l2)
                     # Compute total loss
                     loss += l2_regularization_loss
 
-                ####################################################################################################
-                # Calculate every couple of batches of size 1
                 batch_loss += loss / predictions.shape[0]  # The loss is divided by the number of predictions
                 epoch_loss_train += loss.item()
                 if batch_i % 5 == 0:
