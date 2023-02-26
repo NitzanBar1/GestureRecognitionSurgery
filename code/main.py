@@ -13,21 +13,23 @@ DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 SEED = 44
 
 
-def calc_class_weights(labels_path, labels):
+def reweighting_loss_calculation(labels_path, labels, technique='IPW'):
     files_labels = [f for f in os.listdir(labels_path) if os.path.isfile(os.path.join(labels_path, f))]
-    labels_histogram = {k: 0 for k in labels}
-    sample_count = 0
+    class_hist = {k: 0 for k in labels}
     for label_file in files_labels:
         with open(os.path.join(labels_path, label_file), 'r') as file:
             content = [(line.split()[-1], int(line.split()[1]) - int(line.split()[0]) - 1) for line in file.readlines()]
-            sample_count += sum([amount for _, amount in content])
             for class_label, amount in content:
-                labels_histogram[class_label] += amount
-
-    labels_histogram = {k: v / sample_count for k, v in labels_histogram.items()}
-    median_freq = np.median(list(labels_histogram.values()))
-    class_weights = sorted([(k, median_freq / v) for k, v in labels_histogram.items()], key=lambda x: x[0])
-    return torch.tensor([weight for _, weight in class_weights]).float().to(DEVICE)
+                class_hist[class_label] += amount
+    if technique == 'ISNS':
+        class_weights = {k: 1 / (v) ** 0.5 for k, v in
+                      class_hist.items()}  # ISNS -Inverse of Square Root of Number of Samples
+    else:
+        class_weights = {k: v / sum([x[1] for x in class_hist.items()]) * len(class_hist.items()) for k, v in
+                      class_hist.items()}  # IPW -Inverse of probability of Number of Samples
+    weigths = torch.tensor(
+        [weight for _, weight in sorted([(k, v) for k, v in class_weights.items()], key=lambda x: x[0])])
+    return weigths.float().to(DEVICE)
 
 
 def fold_split(features_path, val_path, test_path):
@@ -49,30 +51,32 @@ def initialize_seed():
 
 def run_train(val_path_fold, test_path_fold, features_path_fold, results_dir, model_dir, actions_dict,
               num_layers_PG, num_layers_R, num_R, num_f_maps,
-              num_epochs, batch_size, lr, features_dim, clogger, true_labels_dir, kl_flag=False,
+              num_epochs, batch_size, lr, features_dim, clogger, true_labels_dir, ridge_reg=False, attention=False,
               label_class_weights=None,
-              gru_flag=False,
-              weighted_flag=False,
-              final_gru=True, sample_size=5):
+              lstm=False,
+              lstm_att=False,
+              weighted_flag=False):
     fold_num = features_path_fold.split("/")[-2]
     print(f"\t{fold_num}")
     labels = ['G0', 'G1', 'G2', 'G3', 'G4', 'G5']
-    class_weights = calc_class_weights(true_labels_dir, labels=labels)
+    class_weights = reweighting_loss_calculation(true_labels_dir, labels=labels, technique='IPW')
     sample_rate = 1
     num_classes = len(labels)
     folder_class_labels_flag = "ClassWeighted" if label_class_weights else "NotClassWeighted"
-    final_GRU_flag = "Final-GRU" if final_gru else "Final-NoGRU"
-    sample_size_flag = f"Sample size {sample_size}"
-    ################## Flags to print ######################
-    exts = [final_GRU_flag, folder_class_labels_flag, sample_size_flag]
+    LSTM_Att_flag = "LSTM_Att" if lstm_att else "Without_LSTM_Att"
+
+    # Experiment flags
+    exts = [LSTM_Att_flag, folder_class_labels_flag]
     ########################################################
+
     folder_name = results_dir.format(fold_num, "_".join(exts))
     model_folder_name = model_dir.format(fold_num, "_".join(exts))
     try:
         os.makedirs(folder_name)
         os.makedirs(model_folder_name)
     except:
-        pass
+        print("Could not create the experiment folders")
+
     # Split data into folds
     vid_list_file, vid_list_file_val, vid_list_file_test = fold_split(features_path_fold, val_path_fold,
                                                                       test_path_fold)
@@ -86,9 +90,9 @@ def run_train(val_path_fold, test_path_fold, features_path_fold, results_dir, mo
 
     # create trainer instance
     trainer = Trainer(num_layers_PG, num_layers_R, num_R, num_f_maps, features_dim, num_classes,
-                      fold_num, fold_num, weighted=weighted_flag, kl=kl_flag, gru=gru_flag,
-                      class_weights=class_weights if label_class_weights else None, final_gru=final_gru,
-                      sample_size=sample_size)
+                      fold_num, fold_num, weighted=weighted_flag,
+                      class_weights=class_weights if label_class_weights else None, ridge_reg=ridge_reg,
+                      attention=attention, lstm=lstm, lstm_att=lstm_att)
     # train the model
     trainer.train(model_folder_name, batch_gen_train, batch_gen_val, num_epochs=num_epochs, batch_size=batch_size,
                   learning_rate=lr, device=DEVICE, clogger=clogger, lambda_l2=0.001)
@@ -164,9 +168,9 @@ def main():
                           num_layers_PG=num_layers_PG, num_layers_R=num_layers_R, num_R=num_R,
                           num_f_maps=num_f_maps, num_epochs=num_epochs, true_labels_dir=true_labels_dir,
                           batch_size=batch_size, lr=lr, features_dim=features_dim,
-                          clogger=clogger, kl_flag=False,
+                          clogger=clogger,
+                          ridge_reg=True,
                           label_class_weights=True,
-                          gru_flag=False,
                           weighted_flag=False,
                           final_gru=True, sample_size=sample_size)
 
@@ -179,11 +183,11 @@ def main():
                       num_layers_PG=num_layers_PG, num_layers_R=num_layers_R, num_R=num_R,
                       num_f_maps=num_f_maps, num_epochs=num_epochs, true_labels_dir=true_labels_dir,
                       batch_size=batch_size, lr=lr, features_dim=features_dim,
-                      clogger=clogger, kl_flag=False,
+                      clogger=clogger,
                       label_class_weights=True,
-                      gru_flag=False,
-                      weighted_flag=False,
-                      final_gru=True, sample_size=5)
+                      attention=True,
+                      lstm_att=True, lstm=False,
+                      weighted_flag=False)
 
     if args.action == "baseline":
         for val_path_fold, test_path_fold, features_path_fold in folds_split_directories:
@@ -194,9 +198,8 @@ def main():
                       num_layers_PG=num_layers_PG, num_layers_R=num_layers_R, num_R=num_R,
                       num_f_maps=num_f_maps, num_epochs=num_epochs, true_labels_dir=true_labels_dir,
                       batch_size=batch_size, lr=lr, features_dim=features_dim,
-                      clogger=clogger, kl_flag=False,
+                      clogger=clogger,
                       label_class_weights=None,
-                      gru_flag=False,
                       weighted_flag=False,
                       final_gru=False, sample_size=1)
 

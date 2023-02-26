@@ -12,12 +12,17 @@ from eval import f_score, edit_score
 from tqdm import tqdm
 
 
-class MS_TCN2_GRU(nn.Module):
-    def __init__(self, num_layers_PG, num_layers_R, num_R, num_f_maps, dim, num_classes, sample_size=5, upsample=True):
-        super(MS_TCN2_GRU, self).__init__()
+class MS_TCN2_Modified(nn.Module):
+    def __init__(self, num_layers_PG, num_layers_R, num_R, num_f_maps, dim, num_classes, sample_size=5, attention=False,
+                 lstm=False, lstm_att=False, upsample=True):
+        super(MS_TCN2_Modified, self).__init__()
+        self.attention = attention
         self.PG = Prediction_Generation(num_layers_PG, num_f_maps, dim, num_classes)
         self.Rs = nn.ModuleList(
-            [copy.deepcopy(Refinement(num_layers_R, num_f_maps, num_classes, num_classes)) for s in range(num_R)])
+            [copy.deepcopy(
+                Refinement(num_layers=num_layers_R, num_f_maps=num_f_maps, num_classes=num_classes, dim=num_classes,
+                           attention=attention, lstm=lstm, lstm_att=lstm_att)) for s in
+                range(num_R)])
         #   Added by us
         self.gru = nn.GRU(input_size=6, batch_first=True, hidden_size=64, num_layers=3, dropout=0.1, bidirectional=True)
         self.hidden_to_label = nn.Linear(in_features=128, out_features=6)
@@ -28,17 +33,14 @@ class MS_TCN2_GRU(nn.Module):
         outputs = out.unsqueeze(0)
         for i, R in enumerate(self.Rs):
             out = R(F.softmax(out, dim=1))
-            #####################################
-            if self.upsample:
-                out = self.deconv(out)
-            #####################################
             outputs = torch.cat((outputs, out.unsqueeze(0)), dim=0)
-
-        self.sample_size = 5
-        out = F.interpolate(F.softmax(out, dim=1), int(out.shape[-1] / self.sample_size))  # down sampling
-        out = self.gru(out.transpose(2, 1))[0].squeeze(0)
-        out = self.hidden_to_label(out).unsqueeze(0).transpose(1, 2)
-        outputs = torch.cat((outputs, F.interpolate(out, outputs.shape[-1]).unsqueeze(0)), dim=0)  # up sampling
+        #####################################################
+        # To do - delete or change the architecture
+        # self.sample_size = 5
+        # out = F.interpolate(F.softmax(out, dim=1), int(out.shape[-1] / self.sample_size))  # down sampling
+        # out = self.gru(out.transpose(2, 1))[0].squeeze(0)
+        # out = self.hidden_to_label(out).unsqueeze(0).transpose(1, 2)
+        # outputs = torch.cat((outputs, F.interpolate(out, outputs.shape[-1]).unsqueeze(0)), dim=0)  # up sampling
         return outputs
 
 
@@ -104,38 +106,69 @@ class Prediction_Generation(nn.Module):
 
 
 class Refinement(nn.Module):
-    def __init__(self, num_layers, num_f_maps, dim, num_classes, att=True, upsample=False):
+    def __init__(self, num_layers, num_f_maps, dim, num_classes, attention=False, lstm_att=False, lstm=False,
+                 upsample=False):
         super(Refinement, self).__init__()
         self.conv_1x1 = nn.Conv1d(dim, num_f_maps, 1)
         self.layers = nn.ModuleList(
             [copy.deepcopy(DilatedResidualLayer(2 ** i, num_f_maps, num_f_maps)) for i in range(num_layers)])
         self.conv_out = nn.Conv1d(num_f_maps, num_classes, 1)
-        self.att = att
-        if att:
+        self.att = attention
+        self.lstm_att = lstm_att
+        self.lstm = lstm
+        if self.lstm_att:
+            if self.att:
+                self.lstm_layer = nn.LSTM(input_size=num_f_maps * 2, hidden_size=num_f_maps, batch_first=True)
+            else:
+                print("If LSTM layer desired turn on the attention flag")
+
+        if attention:
             self.attention = nn.MultiheadAttention(num_f_maps, num_heads=5,
                                                    batch_first=True)  # num_f_maps must be divisible by num_heads
             self.layer_norm = nn.LayerNorm(num_f_maps)
         self.upsample = upsample
+
         if upsample:
             self.deconv = nn.ConvTranspose1d(num_f_maps, num_f_maps, kernel_size=3, stride=2, padding=1,
                                              output_padding=1)
+            self.conv_out_refine = nn.Conv1d(num_f_maps, num_f_maps, 3, padding=1)
+            self.conv_out_refine2 = nn.Conv1d(num_f_maps, num_f_maps, 3, padding=1)
+            self.conv_out_refine3 = nn.Conv1d(num_f_maps, num_classes, 1)
+            self.relu = nn.ReLU(inplace=True)
 
     def forward(self, x):
         out = self.conv_1x1(x)
         for layer in self.layers:
             out = layer(out)
+
+        if self.upsample:
+            out = self.deconv(out)
+            out = self.relu(self.conv_out_refine(out))
+            out = self.relu(self.conv_out_refine2(out))
+            # out = self.conv_out_refine3(out)
+
         if self.att:
             # reshape for multi-head attention
-            out = out.permute(0, 2, 1)  # [batch_size, sequence_length, feature_dimension]
+            out_att = out.permute(0, 2, 1)  # [batch_size, sequence_length, feature_dimension]
             # apply multi-head attention
-            out, _ = self.attention(out, out, out)
+            out_att, _ = self.attention(out_att, out_att, out_att)
             # apply layer normalization
-            out = self.layer_norm(out)
+            out_att = self.layer_norm(out_att)
             # reshape back to original shape
-            out = out.permute(0, 2, 1)  # [batch_size, feature_dimension, sequence_length]
-        if self.upsample:
-            self.deconv(out)
-        out = self.conv_out(out)
+            out_att = out_att.permute(0, 2, 1)  # [batch_size, feature_dimension, sequence_length]
+            if self.lstm_att:
+                out = torch.cat((out, out_att), dim=1)
+                out = out.permute(0, 2, 1)
+                out, _ = self.lstm_layer(out)  # apply LSTM layer
+                out = self.conv_out(out.permute(0, 2, 1))  # (batch_size, num_classes, seq_length)
+                return out
+            else:
+                out_att = self.conv_out(out_att)
+                return self.conv_out(out_att)
+        else:
+            return self.conv_out(out)
+
+        # out = self.conv_out(out)  # yields (batch_size, num_classes, seq_length)
         return out
 
 
@@ -187,7 +220,8 @@ class DilatedResidualLayer(nn.Module):
 
 class Trainer:
     def __init__(self, num_layers_PG, num_layers_R, num_R, num_f_maps, dim, num_classes, dataset, split,
-                 weighted=False, kl=False, class_weights=None, gru=False, final_gru=False, sample_size=5):
+                 weighted=False, class_weights=None, lstm=False, lstm_att=False, ridge_reg=False,
+                 attention=False):
         """
         num_layers_PG: number of prediction generation layers
         num_layers_R: number of layers in refienment stage
@@ -198,17 +232,16 @@ class Trainer:
         dataset
         split
         weighted: weighted loss
-        kl: add KL Divergence
         class_weights
-        gru: add a GRU layer as the output layer
-        final_gru: MSTCN++ with final GRU layer & interpolation
-        sample_size: sample size for interpolation
+        attention: Apply attention mechanism on each refinement prediction
+        lstm_att: MSTCN++ with attention on each refinment prediction, concatenated with the original prediction and passing to LSTM layer
         """  # Choose the desired model
-        if final_gru:
-            self.model = MS_TCN2_GRU(num_layers_PG, num_layers_R, num_R, num_f_maps, dim, num_classes,
-                                     sample_size=sample_size)
+        if lstm_att:
+            self.model = MS_TCN2_Modified(num_layers_PG=num_layers_PG, num_layers_R=num_layers_R, num_R=num_R,
+                                          num_f_maps=num_f_maps, dim=dim, num_classes=num_classes, attention=attention,
+                                          lstm_att=lstm_att, lstm=lstm)
         else:
-            self.model = MS_TCN2(num_layers_PG, num_layers_R, num_R, num_f_maps, dim, num_classes, weighted, gru)
+            self.model = MS_TCN2(num_layers_PG, num_layers_R, num_R, num_f_maps, dim, num_classes, weighted, lstm)
 
         if class_weights is not None:
             self.ce = nn.CrossEntropyLoss(weight=class_weights, ignore_index=-100)
@@ -216,21 +249,30 @@ class Trainer:
             self.ce = nn.CrossEntropyLoss(ignore_index=-100)
 
         self.mse = nn.MSELoss(reduction='none')
+
         self.num_classes = num_classes
+
         self.fold = split
+
         self.weighted = weighted
         self.weighted_str = "Weighted" if self.weighted else "Regular"
-        self.kl = kl
-        self.kl_str = "KL" if self.kl else "NoKL"
+
+        self.attention = attention
+        self.attention_flag = "Attention" if self.attention else "WithoutAttention"
+
         self.class_weights = class_weights is not None
         self.class_weights_str = "ClassWeighting" if self.class_weights else "NoClassWeighting"
-        self.gru = gru
-        self.gru_str = "MiddleGRU" if self.gru else "MiddleNoGRU"
-        self.final_gru = final_gru
-        self.final_gru_str = "FinalGRU" if self.final_gru else "FinalNoGRU"
-        self.sample_size = sample_size
-        self.sample_size_str = f"SampleSize{sample_size}"
-        ext = [self.class_weights_str, self.final_gru_str, self.sample_size_str]
+
+        self.lstm = lstm
+        self.lstm_flag = "LSTM_Attention_Refining" if self.lstm else "No_LSTM_Attention_Refining"
+
+        self.lstm_att = lstm_att
+        self.lstm_att_flag = "FinalGRU" if self.lstm_att else "FinalNoGRU"
+
+        self.ridge_reg = ridge_reg
+        self.ridge_reg_flag = "ridge_regularization" if self.ridge_reg else "Without_ridge_regularization"
+
+        ext = [self.class_weights_str, self.lstm_att_flag]
         self.exp_name = "-".join(ext)
         self.overlap = [.1, .25, .5]
         logger.add('logs/' + dataset + "_" + split + "_{time}.log")
@@ -278,8 +320,7 @@ class Trainer:
         self.model.train()
         self.model.to(device)
         optimizer = optim.Adam(self.model.parameters(), lr=learning_rate)
-        best_f1 = 0
-        best_epoch = 0
+        max_metric_F1, best_epoch = 0, 0
         for epoch in tqdm(range(num_epochs)):
             if self.weighted:
                 for i, w in enumerate(self.model.Ws):
@@ -304,44 +345,39 @@ class Trainer:
                 predictions = self.model(batch_input)
                 loss = 0
                 for i, p in enumerate(predictions):
+                    cur_pred_loss = 0
+                    cur_pred_loss += self.ce(p.transpose(2, 1).contiguous().view(-1, self.num_classes),
+                                             batch_target.view(-1))
+                    cur_pred_loss += 0.15 * torch.mean(torch.clamp(
+                        self.mse(F.log_softmax(p[:, :, 1:], dim=1), F.log_softmax(p.detach()[:, :, :-1], dim=1)),
+                        min=0, max=16) * mask[:, :, 1:])
                     if self.weighted:
-                        temp = self.ce(p.transpose(2, 1).contiguous().view(-1, self.num_classes), batch_target.view(-1))
-                        temp += 0.15 * torch.mean(torch.clamp(
-                            self.mse(F.log_softmax(p[:, :, 1:], dim=1), F.log_softmax(p.detach()[:, :, :-1], dim=1)),
-                            min=0, max=16) * mask[:, :, 1:])
-                        if self.kl:
-                            temp += 0.5 * torch.mean(F.softmax(p[:, :, 1:], dim=1) * (
-                                    F.log_softmax(p[:, :, 1:], dim=1) - F.log_softmax(p.detach()[:, :, :-1], dim=1)))
-                        loss += temp * self.model.Ws[i]
-
-                    else:
-                        loss += self.ce(p.transpose(2, 1).contiguous().view(-1, self.num_classes),
-                                        batch_target.view(-1))
-                        loss += 0.15 * torch.mean(torch.clamp(
-                            self.mse(F.log_softmax(p[:, :, 1:], dim=1), F.log_softmax(p.detach()[:, :, :-1], dim=1)),
-                            min=0, max=16) * mask[:, :, 1:])
-                        if self.kl:
-                            loss += 0.5 * torch.mean(F.softmax(p[:, :, 1:], dim=1) * (
-                                    F.log_softmax(p[:, :, 1:], dim=1) - F.log_softmax(p.detach()[:, :, :-1], dim=1)))
+                        cur_pred_loss = cur_pred_loss * self.model.Ws[i]
+                    loss += cur_pred_loss
 
                 # Compute L2 regularization loss
-                l2_regularization_loss = self.l2_regularization_loss(lambda_l2)
+                if self.ridge_reg:
+                    l2_regularization_loss = self.l2_regularization_loss(lambda_l2)
+                    # Compute total loss
+                    loss += l2_regularization_loss
 
-                # Compute total loss
-                loss += l2_regularization_loss
-
-                batch_loss += loss / 5
+                ####################################################################################################
+                # Calculate every couple of batches of size 1
+                batch_loss += loss / predictions.shape[0]  # The loss is divided by the number of predictions
                 epoch_loss_train += loss.item()
                 if batch_i % 5 == 0:
                     batch_loss.backward()
                     optimizer.step()
                     batch_loss = 0
+                ####################################################################################################
 
                 _, predicted = torch.max(predictions[-1].data, 1)
                 correct_train += ((predicted == batch_target).float() * mask[:, 0, :].squeeze(1)).sum().item()
                 total_train += torch.sum(mask[:, 0, :]).item()
-                tp, fp, fn = np.zeros(3), np.zeros(3), np.zeros(3)
 
+                ####################################################################################################
+                # Calculate metrics
+                tp, fp, fn = np.zeros(3), np.zeros(3), np.zeros(3)
                 for s in range(len(self.overlap)):
                     tp1, fp1, fn1 = f_score(predicted.view(-1).tolist(), batch_target.view(-1).tolist(),
                                             self.overlap[s],
@@ -357,6 +393,8 @@ class Trainer:
                     f1s_train[s] += f1
 
                 edit_score_train.append(edit_score(predicted.view(-1).tolist(), batch_target.view(-1).tolist()))
+                ####################################################################################################
+
             ####################### Validation #######################
             epoch_loss_val = 0
             correct_val = 0
@@ -376,7 +414,7 @@ class Trainer:
                         temp += 0.15 * torch.mean(torch.clamp(
                             self.mse(F.log_softmax(p[:, :, 1:], dim=1), F.log_softmax(p.detach()[:, :, :-1], dim=1)),
                             min=0, max=16) * mask[:, :, 1:])
-                        if self.kl:
+                        if self.attention:
                             temp += 0.5 * torch.mean(F.softmax(p[:, :, 1:], dim=1) * (
                                     F.log_softmax(p[:, :, 1:], dim=1) - F.log_softmax(p.detach()[:, :, :-1], dim=1)))
                         loss += temp * self.model.Ws[i]
@@ -387,7 +425,7 @@ class Trainer:
                         loss += 0.15 * torch.mean(torch.clamp(
                             self.mse(F.log_softmax(p[:, :, 1:], dim=1), F.log_softmax(p.detach()[:, :, :-1], dim=1)),
                             min=0, max=16) * mask[:, :, 1:])
-                        if self.kl:
+                        if self.attention:
                             loss += 0.5 * torch.mean(F.softmax(p[:, :, 1:], dim=1) * (
                                     F.log_softmax(p[:, :, 1:], dim=1) - F.log_softmax(p.detach()[:, :, :-1], dim=1)))
 
@@ -412,8 +450,8 @@ class Trainer:
                 edit_score_val.append(edit_score(predicted.view(-1).tolist(), batch_target.view(-1).tolist()))
             batch_gen_train.reset()
             batch_gen_val.reset()
-            if (float(f1s_val[-1]) / len(batch_gen_val.list_of_examples)) > best_f1:
-                best_f1 = (float(f1s_val[-1]) / len(batch_gen_val.list_of_examples))
+            if (float(f1s_val[-1]) / len(batch_gen_val.list_of_examples)) > max_metric_F1:
+                max_metric_F1 = (float(f1s_val[-1]) / len(batch_gen_val.list_of_examples))
                 best_epoch = epoch
                 torch.save(self.model.state_dict(), save_dir + "/best.model")
                 torch.save(optimizer.state_dict(), save_dir + "/best.opt")
@@ -431,7 +469,7 @@ class Trainer:
                     epoch + 1, epoch_loss_val / len(batch_gen_val.list_of_examples),
                     float(correct_val) / total_val))
 
-        logger.info(f"{self.exp_name} Run: Best Validation F1@50 = %f at epoch = %f" % (best_f1, best_epoch + 1))
+        logger.info(f"{self.exp_name} Run: Best Validation F1@50 = %f at epoch = %f" % (max_metric_F1, best_epoch + 1))
 
     def predict(self, model_dir, results_dir, features_path, vid_list_file, epoch, actions_dict, device, sample_rate):
         """ Run infernce"""
