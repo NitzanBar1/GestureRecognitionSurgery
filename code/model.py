@@ -102,7 +102,7 @@ class Prediction_Generation(nn.Module):
 
 class Refinement(nn.Module):
     def __init__(self, num_layers, num_f_maps, dim, num_classes, attention=False, lstm_att=False, lstm=False,
-                 upsample=False):
+                 upsample=False, downsample_factor=2):
         super(Refinement, self).__init__()
         self.conv_1x1 = nn.Conv1d(dim, num_f_maps, 1)
         self.layers = nn.ModuleList(
@@ -111,6 +111,7 @@ class Refinement(nn.Module):
         self.att = attention
         self.lstm_att = lstm_att
         self.lstm = lstm
+        self.downsample_factor = downsample_factor
         if self.lstm_att:
             if self.att:
                 self.lstm_layer = nn.LSTM(input_size=num_f_maps * 2, hidden_size=num_f_maps, batch_first=True)
@@ -121,6 +122,11 @@ class Refinement(nn.Module):
             self.attention = nn.MultiheadAttention(num_f_maps, num_heads=5,
                                                    batch_first=True)  # num_f_maps must be divisible by num_heads
             self.layer_norm = nn.LayerNorm(num_f_maps)
+
+            self.conv_upsample = nn.ConvTranspose1d(num_f_maps, num_f_maps, kernel_size=self.downsample_factor * 2,
+                                                    stride=self.downsample_factor, padding=self.downsample_factor // 2,
+                                                    output_padding=self.downsample_factor % 2)
+
         self.upsample = upsample
         # if upsample:
         #     self.deconv = nn.ConvTranspose1d(num_f_maps, num_f_maps, kernel_size=3, stride=2, padding=1,
@@ -144,18 +150,25 @@ class Refinement(nn.Module):
 
         if current_layer >= total_layers - 1:  # Amount of layers to perform the new architecture
             if self.att:
+                # Down sampling to reduce attention matrix
+                out_att = nn.functional.interpolate(out, scale_factor=0.5, mode='linear', align_corners=False)
                 # reshape for multi-head attention
-                out_att = out.permute(0, 2, 1)  # [batch_size, sequence_length, feature_dimension]
+                out_att = out_att.permute(0, 2, 1)  # [batch_size, sequence_length, feature_dimension]
                 # apply multi-head attention
                 out_att, _ = self.attention(out_att, out_att, out_att)
                 # apply layer normalization
                 out_att = self.layer_norm(out_att)
                 # reshape back to original shape
                 out_att = out_att.permute(0, 2, 1)  # [batch_size, feature_dimension, sequence_length]
+                # Upsample after attention
+                out_att = nn.functional.interpolate(out_att, size=x.shape[-1], mode='linear', align_corners=False)
+
                 if self.lstm_att:
                     out = torch.cat((out, out_att), dim=1)
+                    # out = F.max_pool1d(out, kernel_size=self.downsample_factor, stride=self.downsample_factor)
                     out = out.permute(0, 2, 1)
                     out, _ = self.lstm_layer(out)  # apply LSTM layer
+
                     out = self.conv_out(out.permute(0, 2, 1))  # (batch_size, num_classes, seq_length)
                     return out
                 else:
