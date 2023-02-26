@@ -7,13 +7,14 @@ import pandas as pd
 
 
 class BatchGenerator(object):
-    def __init__(self, num_classes, actions_dict, gt_path, features_path, sample_rate):
+    def __init__(self, num_classes, actions_dict, gt_path, features_path, kinematic_features_path, sample_rate):
         self.list_of_examples = list()
         self.index = 0
         self.num_classes = num_classes
         self.actions_dict = actions_dict
         self.gt_path = gt_path
         self.features_path = features_path
+        self.kinematic_features_path = kinematic_features_path
         self.sample_rate = sample_rate
 
     def convert_file_to_list(self, path):
@@ -36,7 +37,7 @@ class BatchGenerator(object):
         self.list_of_examples = vid_list_file
         random.shuffle(self.list_of_examples)
 
-    def next_batch(self, batch_size):
+    def next_batch(self, batch_size, concat_kinematic_data=False):
         batch = self.list_of_examples[self.index:self.index + batch_size]
         self.index += batch_size
 
@@ -46,7 +47,15 @@ class BatchGenerator(object):
 
             features = np.load(self.features_path + vid)
             classes = self.convert_file_to_list(self.gt_path + vid[:-4] + '.txt')
-            batch_input.append(features[:, ::self.sample_rate])
+            if concat_kinematic_data:
+                kinematic_features = np.load(self.kinematic_features_path + '/' + vid)
+                kinematic_features_sampled = kinematic_features[:, ::self.sample_rate]
+                features_sampled = features[:, ::self.sample_rate]
+                num_frames = min(kinematic_features_sampled.shape[1], features_sampled.shape[1])
+                concat_features = np.vstack((features_sampled[:,0:num_frames], kinematic_features_sampled[:,0:num_frames]))
+                batch_input.append(concat_features)
+            else:
+                batch_input.append(features[:, ::self.sample_rate])
             batch_target.append(classes[::self.sample_rate])
 
         length_of_sequences = list(map(len, batch_target))
