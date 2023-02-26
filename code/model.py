@@ -37,7 +37,7 @@ class MS_TCN2_Modified(nn.Module):
         out = self.PG(x)
         outputs = out.unsqueeze(0)
         for i, R in enumerate(self.Rs):
-            out = R(F.softmax(out, dim=1))
+            out = R(F.softmax(out, dim=1), current_layer=i, total_layers=len(self.Rs))
             outputs = torch.cat((outputs, out.unsqueeze(0)), dim=0)
         #####################################################
         # To do - delete or change the architecture
@@ -60,7 +60,6 @@ class MS_TCN2(nn.Module):
         self.Ws = nn.ParameterList(
             [copy.deepcopy(nn.Parameter(data=torch.rand(1), requires_grad=True)) for s in range(num_R + 1)])
         self.hidden_to_label = nn.Linear(in_features=128, out_features=6)
-
 
     def forward(self, x):
         out = self.PG(x)
@@ -135,7 +134,7 @@ class Refinement(nn.Module):
             self.conv_out_refine3 = nn.Conv1d(num_f_maps, num_classes, 1)
             self.relu = nn.ReLU(inplace=True)
 
-    def forward(self, x):
+    def forward(self, x, current_layer, total_layers):
         out = self.conv_1x1(x)
         for layer in self.layers:
             out = layer(out)
@@ -146,28 +145,29 @@ class Refinement(nn.Module):
             out = self.relu(self.conv_out_refine2(out))
             # out = self.conv_out_refine3(out)
 
-        if self.att:
-            # reshape for multi-head attention
-            out_att = out.permute(0, 2, 1)  # [batch_size, sequence_length, feature_dimension]
-            # apply multi-head attention
-            out_att, _ = self.attention(out_att, out_att, out_att)
-            # apply layer normalization
-            out_att = self.layer_norm(out_att)
-            # reshape back to original shape
-            out_att = out_att.permute(0, 2, 1)  # [batch_size, feature_dimension, sequence_length]
-            if self.lstm_att:
-                out = torch.cat((out, out_att), dim=1)
-                out = out.permute(0, 2, 1)
-                out, _ = self.lstm_layer(out)  # apply LSTM layer
-                out = self.conv_out(out.permute(0, 2, 1))  # (batch_size, num_classes, seq_length)
-                return out
+        if current_layer >= total_layers - 1:  # Amount of layers to perform the new architecture
+            if self.att:
+                # reshape for multi-head attention
+                out_att = out.permute(0, 2, 1)  # [batch_size, sequence_length, feature_dimension]
+                # apply multi-head attention
+                out_att, _ = self.attention(out_att, out_att, out_att)
+                # apply layer normalization
+                out_att = self.layer_norm(out_att)
+                # reshape back to original shape
+                out_att = out_att.permute(0, 2, 1)  # [batch_size, feature_dimension, sequence_length]
+                if self.lstm_att:
+                    out = torch.cat((out, out_att), dim=1)
+                    out = out.permute(0, 2, 1)
+                    out, _ = self.lstm_layer(out)  # apply LSTM layer
+                    out = self.conv_out(out.permute(0, 2, 1))  # (batch_size, num_classes, seq_length)
+                    return out
+                else:
+                    out_att = self.conv_out(out_att)
+                    return self.conv_out(out_att)
             else:
-                out_att = self.conv_out(out_att)
-                return self.conv_out(out_att)
-        else:
-            return self.conv_out(out)
+                return self.conv_out(out)
 
-        # out = self.conv_out(out)  # yields (batch_size, num_classes, seq_length)
+        out = self.conv_out(out)  # yields (batch_size, num_classes, seq_length)
         return out
 
 
@@ -221,10 +221,10 @@ class Trainer:
     def __init__(self, num_layers_PG, num_layers_R, num_R, num_f_maps, dim, num_classes, split, sample_size=5,
                  model_type='mstcn2',
                  transformer_params={},
-                 concat_kinematic_data=False, 
+                 concat_kinematic_data=False,
                  kinematic_features_path="/datashare/APAS/kinematics_npy",
-				 weighted=False, class_weights=None,
-				 lstm=False, lstm_att=False, ridge_reg=False, attention=False):
+                 weighted=False, class_weights=None,
+                 lstm=False, lstm_att=False, ridge_reg=False, attention=False):
         """
         num_layers_PG: number of prediction generation layers
         num_layers_R: number of layers in refienment stage
@@ -244,18 +244,19 @@ class Trainer:
         lstm_att: MSTCN++ with attention on each refinment prediction, concatenated with the original prediction and passing to LSTM layer
         ridge_reg: add ridge regression
         attention: Apply attention mechanism on each refinement prediction
-        """  
+        """
         # Choose the desired model
         if model_type == 'mstcn2':
             if lstm_att:
-                self.model = MS_TCN2_Modified(num_layers_PG=num_layers_PG, num_layers_R=num_layers_R, num_R=num_R, 
-                num_f_maps=num_f_maps, dim=dim, num_classes=num_classes, attention=attention, lstm_att=lstm_att, lstm=lstm)        	
+                self.model = MS_TCN2_Modified(num_layers_PG=num_layers_PG, num_layers_R=num_layers_R, num_R=num_R,
+                                              num_f_maps=num_f_maps, dim=dim, num_classes=num_classes,
+                                              attention=attention, lstm_att=lstm_att, lstm=lstm)
             else:
                 self.model = MS_TCN2(num_layers_PG, num_layers_R, num_R, num_f_maps, dim, num_classes, weighted)
 
-        else: #asformer
+        else:  # Trasformer
             self.model = MyTransformer(**transformer_params)
-		
+
         if class_weights is not None:
             self.ce = nn.CrossEntropyLoss(weight=class_weights, ignore_index=-100)
         else:
@@ -278,7 +279,7 @@ class Trainer:
 
         self.lstm_att = lstm_att
         self.lstm_att_flag = "FinalGRU" if self.lstm_att else "FinalNoGRU"
-        
+
         self.sample_size = sample_size
         self.sample_size_str = f"SampleSize{sample_size}"
 
@@ -354,7 +355,8 @@ class Trainer:
             # Training loop
             while batch_gen_train.has_next():
                 batch_i += 1
-                batch_input, batch_target, mask = batch_gen_train.next_batch(batch_size, concat_kinematic_data=self.concat_kinematic_data)
+                batch_input, batch_target, mask = batch_gen_train.next_batch(batch_size=batch_size,
+                                                                             concat_kinematic_data=self.concat_kinematic_data)
                 batch_input, batch_target, mask = batch_input.to(device), batch_target.to(device), mask.to(device)
                 optimizer.zero_grad()
                 predictions = self.model(batch_input)
@@ -369,7 +371,6 @@ class Trainer:
                     if self.weighted:
                         cur_pred_loss = cur_pred_loss * self.model.Ws[i]
                     loss += cur_pred_loss
-
 
                 ####################################################################################################
                 # Calculate every couple of batches of size 1
@@ -421,7 +422,8 @@ class Trainer:
             edit_score_val = []
             self.model.eval()
             while batch_gen_val.has_next():
-                batch_input, batch_target, mask = batch_gen_val.next_batch(batch_size, concat_kinematic_data=self.concat_kinematic_data)
+                batch_input, batch_target, mask = batch_gen_val.next_batch(batch_size,
+                                                                           concat_kinematic_data=self.concat_kinematic_data)
                 batch_input, batch_target, mask = batch_input.to(device), batch_target.to(device), mask.to(device)
                 predictions = self.model(batch_input)
                 loss = 0
@@ -506,12 +508,13 @@ class Trainer:
                     kinematic_features_sampled = kinematic_features[:, ::sample_rate]
                     features_sampled = features[:, ::sample_rate]
                     num_frames = min(kinematic_features_sampled.shape[1], features_sampled.shape[1])
-                    concat_features = np.vstack((features_sampled[:,0:num_frames], kinematic_features_sampled[:,0:num_frames]))
+                    concat_features = np.vstack(
+                        (features_sampled[:, 0:num_frames], kinematic_features_sampled[:, 0:num_frames]))
                     input_x = torch.tensor(concat_features, dtype=torch.float)
                 else:
                     features = features[:, ::sample_rate]
                     input_x = torch.tensor(features, dtype=torch.float)
-                
+
                 input_x.unsqueeze_(0)
                 input_x = input_x.to(device)
                 predictions = self.model(input_x)
@@ -528,6 +531,7 @@ class Trainer:
                 f_ptr.write(' '.join(recognition))
                 f_ptr.close()
 
+
 # ------------------- ASFormer ------------------------------
 class MT_RNN_dp(nn.Module):
     def __init__(self, rnn_type, input_dim, hidden_dim, num_classes_list, bidirectional, dropout, num_layers=2):
@@ -536,13 +540,17 @@ class MT_RNN_dp(nn.Module):
         self.hidden_dim = hidden_dim
         self.dropout = torch.nn.Dropout(dropout)
         if rnn_type == "LSTM":
-            self.rnn = nn.LSTM(input_dim, hidden_dim, batch_first=True, bidirectional=bidirectional, num_layers=num_layers)
+            self.rnn = nn.LSTM(input_dim, hidden_dim, batch_first=True, bidirectional=bidirectional,
+                               num_layers=num_layers)
         elif rnn_type == "GRU":
-            self.rnn = nn.GRU(input_dim, hidden_dim, batch_first=True, bidirectional=bidirectional, num_layers=num_layers)
+            self.rnn = nn.GRU(input_dim, hidden_dim, batch_first=True, bidirectional=bidirectional,
+                              num_layers=num_layers)
         else:
             raise NotImplemented
         # The linear layer that maps from hidden state space to tag space
-        self.output_heads = nn.ModuleList([copy.deepcopy(nn.Linear(hidden_dim * 2 if bidirectional else hidden_dim, num_classes_list[s])) for s in range(len(num_classes_list))])
+        self.output_heads = nn.ModuleList(
+            [copy.deepcopy(nn.Linear(hidden_dim * 2 if bidirectional else hidden_dim, num_classes_list[s])) for s in
+             range(len(num_classes_list))])
 
     def forward(self, batch_input_kinematics):
         lengths = torch.tensor([batch_input_kinematics.shape[2]])
@@ -550,7 +558,8 @@ class MT_RNN_dp(nn.Module):
         batch_input_kinematics = batch_input_kinematics.permute(0, 2, 1)
         batch_input_kinematics = self.dropout(batch_input_kinematics)
 
-        packed_input = pack_padded_sequence(batch_input_kinematics, lengths=lengths, batch_first=True, enforce_sorted=False)
+        packed_input = pack_padded_sequence(batch_input_kinematics, lengths=lengths, batch_first=True,
+                                            enforce_sorted=False)
         rnn_output, _ = self.rnn(packed_input)
 
         unpacked_rnn_out, unpacked_rnn_out_lengths = pad_packed_sequence(rnn_output, padding_value=-1, batch_first=True)
@@ -559,6 +568,7 @@ class MT_RNN_dp(nn.Module):
         for output_head in self.output_heads:
             outputs.append(output_head(unpacked_rnn_out).permute(0, 2, 1))
         return outputs
+
 
 class AttentionHelper(nn.Module):
     def __init__(self):
@@ -859,14 +869,18 @@ def exponential_descrease(idx_decoder, p=3):
 
 
 class MyTransformer(nn.Module):
-    def __init__(self, num_decoders, num_layers, r1, r2, num_f_maps, input_dim, num_classes, channel_masking_rate, lstm_dropout):
+    def __init__(self, num_decoders, num_layers, r1, r2, num_f_maps, input_dim, num_classes, channel_masking_rate,
+                 lstm_dropout):
         super(MyTransformer, self).__init__()
         self.rnn = MT_RNN_dp('LSTM', 36, 100, [6], dropout=lstm_dropout, num_layers=3, bidirectional=True).to(device)
-        self.encoder = Encoder(num_layers, r1, r2, num_f_maps, input_dim, num_classes, channel_masking_rate, att_type='sliding_att', alpha=1)
-        self.decoders = nn.ModuleList([copy.deepcopy(Decoder(num_layers, r1, r2, num_f_maps, num_classes, num_classes, att_type='sliding_att', alpha=exponential_descrease(s))) for s in range(num_decoders)])  # num_decoders
+        self.encoder = Encoder(num_layers, r1, r2, num_f_maps, input_dim, num_classes, channel_masking_rate,
+                               att_type='sliding_att', alpha=1)
+        self.decoders = nn.ModuleList([copy.deepcopy(
+            Decoder(num_layers, r1, r2, num_f_maps, num_classes, num_classes, att_type='sliding_att',
+                    alpha=exponential_descrease(s))) for s in range(num_decoders)])  # num_decoders
 
     def forward(self, batch_input):
-        #batch_input = batch_input.transpose(1, 2)
+        # batch_input = batch_input.transpose(1, 2)
         mask = torch.ones_like(batch_input, device=device)
         out, feature = self.encoder(batch_input, mask)
         outputs = out.unsqueeze(0)
