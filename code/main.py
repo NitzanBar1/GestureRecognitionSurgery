@@ -57,7 +57,6 @@ def run_train(val_path_fold, test_path_fold, features_path_fold, kinematic_featu
               concat_kinematic_data=False,
 			  label_class_weights=None, weighted_flag=False,
 			  ridge_reg=False, attention=False,
-			  lstm=False,
               lstm_att=False):
     fold_num = features_path_fold.split("/")[-2]
     print(f"\t{fold_num}")
@@ -101,7 +100,7 @@ def run_train(val_path_fold, test_path_fold, features_path_fold, kinematic_featu
                       sample_size=sample_size, transformer_params=transformer_params,
                       concat_kinematic_data=concat_kinematic_data, kinematic_features_path=kinematic_features_path,
 					  weighted=weighted_flag, class_weights=class_weights if label_class_weights else None,
-					  ridge_reg=ridge_reg, attention=attention, lstm=lstm, lstm_att=lstm_att)
+					  ridge_reg=ridge_reg, attention=attention, lstm_att=lstm_att)
     # train the model
     trainer.train(model_folder_name, batch_gen_train, batch_gen_val, num_epochs=num_epochs, batch_size=batch_size,
                   learning_rate=lr, device=DEVICE, clogger=clogger, lambda_l2=0.001)
@@ -201,7 +200,7 @@ def main():
 					  model_type='mstcn2', sample_size=1,                      
                       label_class_weights=False, weighted_flag=False,
                       ridge_reg=False, attention=True,
-                      lstm=False, lstm_att=True)
+                      lstm_att=True)
 
     if args.action == "baseline":
         for val_path_fold, test_path_fold, features_path_fold in folds_split_directories:
@@ -217,7 +216,7 @@ def main():
                       model_type='mstcn2', sample_size=1,
                       label_class_weights=False, weighted_flag=False,
                       ridge_reg=False, attention=False,
-                      lstm=False, lstm_att=False)
+                      lstm_att=False)
 
     if args.action == "mstcn2_concat_kinematic":
         for val_path_fold, test_path_fold, features_path_fold in folds_split_directories:

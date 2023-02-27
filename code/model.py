@@ -19,33 +19,22 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 class MS_TCN2_Modified(nn.Module):
     def __init__(self, num_layers_PG, num_layers_R, num_R, num_f_maps, dim, num_classes, sample_size=5, attention=False,
-                 lstm=False, lstm_att=False, upsample=True):
+                 lstm_att=False, upsample=True):
         super(MS_TCN2_Modified, self).__init__()
         self.attention = attention
         self.PG = Prediction_Generation(num_layers_PG, num_f_maps, dim, num_classes)
         self.Rs = nn.ModuleList(
-            [copy.deepcopy(
-                Refinement(num_layers=num_layers_R, num_f_maps=num_f_maps, num_classes=num_classes, dim=num_classes,
-                           attention=attention, lstm=lstm, lstm_att=lstm_att)) for s in
-                range(num_R)])
-        #   Added by us
-        self.gru = nn.GRU(input_size=6, batch_first=True, hidden_size=64, num_layers=3, dropout=0.1, bidirectional=True)
-        self.hidden_to_label = nn.Linear(in_features=128, out_features=6)
-        self.sample_size = sample_size
-
+            [copy.deepcopy(Refinement(num_layers=num_layers_R, num_f_maps=num_f_maps, num_classes=num_classes, dim=num_classes)) for s in range(num_R)] +
+            [copy.deepcopy(RefinementWithAttention(num_layers=num_layers_R, num_f_maps=num_f_maps, num_classes=num_classes, dim=num_classes, 
+            attention=attention, lstm_att=lstm_att)) for s in range(num_R)])
+        
     def forward(self, x):
         out = self.PG(x)
         outputs = out.unsqueeze(0)
         for i, R in enumerate(self.Rs):
-            out = R(F.softmax(out, dim=1), current_layer=i, total_layers=len(self.Rs))
+            out = R(F.softmax(out, dim=1))
             outputs = torch.cat((outputs, out.unsqueeze(0)), dim=0)
-        #####################################################
-        # To do - delete or change the architecture
-        # self.sample_size = 5
-        # out = F.interpolate(F.softmax(out, dim=1), int(out.shape[-1] / self.sample_size))  # down sampling
-        # out = self.gru(out.transpose(2, 1))[0].squeeze(0)
-        # out = self.hidden_to_label(out).unsqueeze(0).transpose(1, 2)
-        # outputs = torch.cat((outputs, F.interpolate(out, outputs.shape[-1]).unsqueeze(0)), dim=0)  # up sampling
+        
         return outputs
 
 
@@ -106,17 +95,32 @@ class Prediction_Generation(nn.Module):
 
 
 class Refinement(nn.Module):
-    def __init__(self, num_layers, num_f_maps, dim, num_classes, attention=False, lstm_att=False, lstm=False,
-                 upsample=False, downsample_factor=2):
+    def __init__(self, num_layers, num_f_maps, dim, num_classes):
         super(Refinement, self).__init__()
         self.conv_1x1 = nn.Conv1d(dim, num_f_maps, 1)
-        self.layers = nn.ModuleList(
-            [copy.deepcopy(DilatedResidualLayer(2 ** i, num_f_maps, num_f_maps)) for i in range(num_layers)])
+        self.layers = nn.ModuleList([copy.deepcopy(DilatedResidualLayer(2**i, num_f_maps, num_f_maps)) for i in range(num_layers)])
+        self.conv_out = nn.Conv1d(num_f_maps, num_classes, 1)
+
+    def forward(self, x):
+        out = self.conv_1x1(x)
+        for layer in self.layers:
+            out = layer(out)
+        out = self.conv_out(out)
+        return out
+
+
+class RefinementWithAttention(nn.Module):
+    def __init__(self, num_layers, num_f_maps, dim, num_classes, attention=False, lstm_att=False,
+                 upsample=False, downsample_factor=2, scale_factor=0.25):
+        super(RefinementWithAttention, self).__init__()
+        self.conv_1x1 = nn.Conv1d(dim, num_f_maps, 1)
+        self.layers = nn.ModuleList([copy.deepcopy(DilatedResidualLayer(2 ** i, num_f_maps, num_f_maps)) for i in range(num_layers)])
         self.conv_out = nn.Conv1d(num_f_maps, num_classes, 1)
         self.att = attention
         self.lstm_att = lstm_att
-        self.lstm = lstm
+        self.upsample = upsample
         self.downsample_factor = downsample_factor
+        self.scale_factor = scale_factor
         if self.lstm_att:
             if self.att:
                 self.lstm_layer = nn.LSTM(input_size=num_f_maps * 2, hidden_size=num_f_maps, batch_first=True)
@@ -124,16 +128,13 @@ class Refinement(nn.Module):
                 print("If LSTM layer desired turn on the attention flag")
 
         if attention:
-            self.attention = nn.MultiheadAttention(num_f_maps, num_heads=5,
-                                                   batch_first=True)  # num_f_maps must be divisible by num_heads
+            self.attention = nn.MultiheadAttention(num_f_maps, num_heads=5, batch_first=True)  # num_f_maps must be divisible by num_heads
             self.layer_norm = nn.LayerNorm(num_f_maps)
-
             self.conv_upsample = nn.ConvTranspose1d(num_f_maps, num_f_maps, kernel_size=self.downsample_factor * 2,
                                                     stride=self.downsample_factor, padding=self.downsample_factor // 2,
                                                     output_padding=self.downsample_factor % 2)
 
-        self.upsample = upsample
-        # if upsample:
+        # if self.upsample:
         #     self.deconv = nn.ConvTranspose1d(num_f_maps, num_f_maps, kernel_size=3, stride=2, padding=1,
         #                                      output_padding=1)
         #     self.conv_out_refine = nn.Conv1d(num_f_maps, num_f_maps, 3, padding=1)
@@ -141,7 +142,7 @@ class Refinement(nn.Module):
         #     self.conv_out_refine3 = nn.Conv1d(num_f_maps, num_classes, 1)
         #     self.relu = nn.ReLU(inplace=True)
 
-    def forward(self, x, current_layer, total_layers):
+    def forward(self, x):
         out = self.conv_1x1(x)
         for layer in self.layers:
             out = layer(out)
@@ -153,34 +154,35 @@ class Refinement(nn.Module):
             pass
             # out = self.conv_out_refine3(out)
 
-        if current_layer >= total_layers - 1:  # Amount of layers to perform the new architecture
-            if self.att:
-                # Down sampling to reduce attention matrix
-                out_att = nn.functional.interpolate(out, scale_factor=0.5, mode='linear', align_corners=False)
-                # reshape for multi-head attention
-                out_att = out_att.permute(0, 2, 1)  # [batch_size, sequence_length, feature_dimension]
-                # apply multi-head attention
-                out_att, _ = self.attention(out_att, out_att, out_att)
-                # apply layer normalization
-                out_att = self.layer_norm(out_att)
-                # reshape back to original shape
-                out_att = out_att.permute(0, 2, 1)  # [batch_size, feature_dimension, sequence_length]
+        if self.att:
+            # Down sampling to reduce attention matrix
+            out_att = nn.functional.interpolate(out, scale_factor=self.scale_factor, mode='linear', align_corners=False)
+            # reshape for multi-head attention
+            out_att = out_att.permute(0, 2, 1)  # [batch_size, sequence_length, feature_dimension]
+            # apply multi-head attention
+            out_att, _ = self.attention(out_att, out_att, out_att)
+            # apply layer normalization
+            out_att = self.layer_norm(out_att)
+            # reshape back to original shape
+            out_att = out_att.permute(0, 2, 1)  # [batch_size, feature_dimension, sequence_length]
+
+            if self.lstm_att:
+                out = nn.functional.interpolate(out, scale_factor=self.scale_factor, mode='linear', align_corners=False)
+                out = torch.cat((out, out_att), dim=1)
+                # out = F.max_pool1d(out, kernel_size=self.downsample_factor, stride=self.downsample_factor)
+                out = out.permute(0, 2, 1)
+                out, _ = self.lstm_layer(out)  # apply LSTM layer
+                out = out.permute(0, 2, 1)
+                out = nn.functional.interpolate(out, size=x.shape[-1], mode='linear', align_corners=False)
+                out = self.conv_out(out)  # (batch_size, num_classes, seq_length)
+                return out
+            else:
                 # Upsample after attention
                 out_att = nn.functional.interpolate(out_att, size=x.shape[-1], mode='linear', align_corners=False)
-
-                if self.lstm_att:
-                    out = torch.cat((out, out_att), dim=1)
-                    # out = F.max_pool1d(out, kernel_size=self.downsample_factor, stride=self.downsample_factor)
-                    out = out.permute(0, 2, 1)
-                    out, _ = self.lstm_layer(out)  # apply LSTM layer
-
-                    out = self.conv_out(out.permute(0, 2, 1))  # (batch_size, num_classes, seq_length)
-                    return out
-                else:
-                    out_att = self.conv_out(out_att)
-                    return self.conv_out(out_att)
-            else:
-                return self.conv_out(out)
+                out_att = self.conv_out(out_att)
+                return self.conv_out(out_att)
+        else:
+            return self.conv_out(out)
 
         out = self.conv_out(out)  # yields (batch_size, num_classes, seq_length)
         return out
@@ -239,7 +241,7 @@ class Trainer:
                  concat_kinematic_data=False, 
                  kinematic_features_path="/datashare/APAS/kinematics_npy",
 				 weighted=False, class_weights=None,
-				 lstm=False, lstm_att=False, ridge_reg=False, attention=False):
+				 lstm_att=False, ridge_reg=False, attention=False):
         """
         num_layers_PG: number of prediction generation layers
         num_layers_R: number of layers in refienment stage
@@ -255,7 +257,6 @@ class Trainer:
         kinematic_features_path: path to kinematic features
 		weighted: weighted loss
         class_weights
-        lstm: add lstm layer or not
         lstm_att: MSTCN++ with attention on each refinment prediction, concatenated with the original prediction and passing to LSTM layer
         ridge_reg: add ridge regression
         attention: Apply attention mechanism on each refinement prediction
@@ -264,7 +265,7 @@ class Trainer:
         if model_type == 'mstcn2':
             if lstm_att:
                 self.model = MS_TCN2_Modified(num_layers_PG=num_layers_PG, num_layers_R=num_layers_R, num_R=num_R, 
-                num_f_maps=num_f_maps, dim=dim, num_classes=num_classes, attention=attention, lstm_att=lstm_att, lstm=lstm)        	
+                num_f_maps=num_f_maps, dim=dim, num_classes=num_classes, attention=attention, lstm_att=lstm_att)        	
             else:
                 self.model = MS_TCN2(num_layers_PG, num_layers_R, num_R, num_f_maps, dim, num_classes, weighted)
 
@@ -288,11 +289,8 @@ class Trainer:
         self.class_weights = class_weights is not None
         self.class_weights_str = "ClassWeighting" if self.class_weights else "NoClassWeighting"
 
-        self.lstm = lstm
-        self.lstm_flag = "LSTM_Attention_Refining" if self.lstm else "No_LSTM_Attention_Refining"
-
         self.lstm_att = lstm_att
-        self.lstm_att_flag = "FinalGRU" if self.lstm_att else "FinalNoGRU"
+        self.lstm_att_flag = "LSTM_Attention_Refining" if self.lstm_att else "No_LSTM_Attention_Refining"
         
         self.sample_size = sample_size
         self.sample_size_str = f"SampleSize{sample_size}"
