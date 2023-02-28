@@ -10,7 +10,7 @@ import numpy as np
 from batch_gen import BatchGenerator
 
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-SEED = 44
+SEED = 42
 
 
 def reweighting_loss_calculation(labels_path, labels, technique='IPW'):
@@ -23,10 +23,10 @@ def reweighting_loss_calculation(labels_path, labels, technique='IPW'):
                 class_hist[class_label] += amount
     if technique == 'ISNS':
         class_weights = {k: 1 / (v) ** 0.5 for k, v in
-                      class_hist.items()}  # ISNS -Inverse of Square Root of Number of Samples
+                         class_hist.items()}  # ISNS -Inverse of Square Root of Number of Samples
     else:
         class_weights = {k: v / sum([x[1] for x in class_hist.items()]) * len(class_hist.items()) for k, v in
-                      class_hist.items()}  # IPW -Inverse of probability of Number of Samples
+                         class_hist.items()}  # IPW -Inverse of probability of Number of Samples
     weigths = torch.tensor(
         [weight for _, weight in sorted([(k, v) for k, v in class_weights.items()], key=lambda x: x[0])])
     return weigths.float().to(DEVICE)
@@ -49,15 +49,18 @@ def initialize_seed():
     torch.backends.cudnn.deterministic = True
 
 
-def run_train(val_path_fold, test_path_fold, features_path_fold, kinematic_features_path, results_dir, model_dir, actions_dict,
+def run_train(val_path_fold, test_path_fold, features_path_fold, kinematic_features_path, results_dir, model_dir,
+              actions_dict,
               num_layers_PG, num_layers_R, num_R, num_f_maps,
               num_epochs, batch_size, lr, features_dim, clogger, sample_rate, true_labels_dir,
-              model_type='mstcn2', sample_size=5,
-              transformer_params = {},
-              concat_kinematic_data=False,
-			  label_class_weights=None, weighted_flag=False,
-			  ridge_reg=False, attention=False,
-              lstm_att=False):
+              model_type='mstcn2',
+              transformer_params={},
+              concat_kinematic_data=False, num_layers_lstm_att=1,
+              label_class_weights=None, weighted_flag=False,
+              ridge_reg=False, attention=False,
+              lstm=False,
+              lstm_att=False,
+              aggregate=False):
     fold_num = features_path_fold.split("/")[-2]
     print(f"\t{fold_num}")
     labels = ['G0', 'G1', 'G2', 'G3', 'G4', 'G5']
@@ -70,9 +73,9 @@ def run_train(val_path_fold, test_path_fold, features_path_fold, kinematic_featu
 
     # Experiment flags
     folder_class_labels_flag = "ClassWeighted" if label_class_weights else "NotClassWeighted"
-    sample_size_flag = f"Sample size {sample_size}"
     LSTM_Att_flag = "LSTM_Att" if lstm_att else "Without_LSTM_Att"
-    exts = [sample_size_flag, LSTM_Att_flag, folder_class_labels_flag]
+    exts = [LSTM_Att_flag, folder_class_labels_flag]
+
     ########################################################
     folder_name = results_dir.format(fold_num, "_".join(exts))
     model_folder_name = model_dir.format(fold_num, "_".join(exts))
@@ -86,21 +89,25 @@ def run_train(val_path_fold, test_path_fold, features_path_fold, kinematic_featu
     vid_list_file, vid_list_file_val, vid_list_file_test = fold_split(features_path_fold, val_path_fold,
                                                                       test_path_fold)
     # Generate batches for train
-    batch_gen_train = BatchGenerator(num_classes, actions_dict, true_labels_dir, features_path_fold, kinematic_features_path, sample_rate)
+    batch_gen_train = BatchGenerator(num_classes, actions_dict, true_labels_dir, features_path_fold,
+                                     kinematic_features_path, sample_rate)
     batch_gen_train.read_data(vid_list_file)
 
     # Generate batches for validation
-    batch_gen_val = BatchGenerator(num_classes, actions_dict, true_labels_dir, features_path_fold, kinematic_features_path, sample_rate)
+    batch_gen_val = BatchGenerator(num_classes, actions_dict, true_labels_dir, features_path_fold,
+                                   kinematic_features_path, sample_rate)
     batch_gen_val.read_data(vid_list_file_val)
 
     # create trainer instance
-    trainer = Trainer(num_layers_PG=num_layers_PG, num_layers_R=num_layers_R, num_R=num_R, num_f_maps=num_f_maps, dim=features_dim, num_classes=num_classes,
+    trainer = Trainer(num_layers_PG=num_layers_PG, num_layers_R=num_layers_R, num_R=num_R, num_f_maps=num_f_maps,
+                      dim=features_dim, num_classes=num_classes,
                       split=fold_num,
                       model_type=model_type,
-                      sample_size=sample_size, transformer_params=transformer_params,
+                      transformer_params=transformer_params,
                       concat_kinematic_data=concat_kinematic_data, kinematic_features_path=kinematic_features_path,
-					  weighted=weighted_flag, class_weights=class_weights if label_class_weights else None,
-					  ridge_reg=ridge_reg, attention=attention, lstm_att=lstm_att)
+                      weighted=weighted_flag, class_weights=class_weights if label_class_weights else None,
+                      ridge_reg=ridge_reg, attention=attention, lstm=lstm, lstm_att=lstm_att,
+                      num_layers_lstm_att=num_layers_lstm_att, aggregate=aggregate)
     # train the model
     trainer.train(model_folder_name, batch_gen_train, batch_gen_val, num_epochs=num_epochs, batch_size=batch_size,
                   learning_rate=lr, device=DEVICE, clogger=clogger, lambda_l2=0.001)
@@ -123,11 +130,14 @@ def add_all_arguments(parser):
     parser.add_argument('--lr', default='0.0005', type=float)
     parser.add_argument('--num_f_maps', default='65', type=int)
     parser.add_argument('--mapping_file', default='/datashare/APAS/mapping_gestures.txt', type=str)
+    parser.add_argument('--num_layers_lstm_att', default='1', type=int)
+    parser.add_argument('--aggregate', default='False', type=bool)
     parser.add_argument('--sample_rate', default=1, type=int)
 
 
 def get_args(args):
-    return args.num_epochs, args.features_dim, args.batch_size, args.lr, args.true_labels_dir, args.num_layers_PG, args.num_layers_R, args.num_R, args.num_f_maps, args.mapping_file, args.sample_rate
+    return args.num_epochs, args.features_dim, args.batch_size, args.lr, args.true_labels_dir, args.num_layers_PG, \
+           args.num_layers_R, args.num_R, args.num_f_maps, args.mapping_file, args.num_layers_lstm_att, args.aggregate, args.sample_rate
 
 
 def main():
@@ -136,14 +146,17 @@ def main():
     add_all_arguments(parser)
     args = parser.parse_args()
     num_epochs, features_dim, batch_size, lr, true_labels_dir, num_layers_PG, num_layers_R, \
-    num_R, num_f_maps, mapping_file, sample_rate = get_args(args)
+    num_R, num_f_maps, mapping_file, num_layers_lstm_att, aggregate, sample_rate = get_args(args)
+
     folds_split_directories = [(f"/datashare/APAS/folds/valid {i}.txt",
                                 f"/datashare/APAS/folds/test {i}.txt",
                                 f"/datashare/APAS/features/fold{i}/") for i in range(5)]
+
     kinematic_features_path = "/datashare/APAS/kinematics_npy"
 
-    transformer_params = dict(num_decoders=3, num_layers=9, r1=2, r2=2, num_f_maps=num_f_maps, input_dim=features_dim, num_classes=6,
-                channel_masking_rate=0.25, lstm_dropout=0.35)
+    transformer_params = dict(num_decoders=3, num_layers=9, r1=2, r2=2, num_f_maps=num_f_maps, input_dim=features_dim,
+                              num_classes=6,
+                              channel_masking_rate=0.25, lstm_dropout=0.35)
 
     try:
         latest = max([int(exp.split("exp")[-1]) for exp in os.listdir("./results")])
@@ -175,32 +188,32 @@ def main():
             for sample_size in [1, 5, 10, 30, 60]:
                 run_train(val_path_fold=val_path_fold, test_path_fold=test_path_fold,
                           features_path_fold=features_path_fold, kinematic_features_path=kinematic_features_path,
-						  results_dir=results_dir,
+                          results_dir=results_dir,
                           model_dir=model_dir,
-                          actions_dict=actions_dict,
+                          actions_dict=actions_dict, sample_rate=sample_rate,
                           num_layers_PG=num_layers_PG, num_layers_R=num_layers_R, num_R=num_R,
                           num_f_maps=num_f_maps, num_epochs=num_epochs, true_labels_dir=true_labels_dir,
                           batch_size=batch_size, lr=lr, features_dim=features_dim,
-                          clogger=clogger, sample_rate=sample_rate,
-						  label_class_weights=True, weighted_flag=False,
+                          clogger=clogger,
+                          label_class_weights=True, weighted_flag=False,
                           ridge_reg=True,
-						  model_type='mstcn2', sample_size=sample_size)
-						  
+                          model_type='mstcn2')
+
     if args.action == "train":
         for val_path_fold, test_path_fold, features_path_fold in folds_split_directories:
             run_train(val_path_fold=val_path_fold, test_path_fold=test_path_fold,
                       features_path_fold=features_path_fold, kinematic_features_path=kinematic_features_path,
                       results_dir=results_dir,
                       model_dir=model_dir,
-                      actions_dict=actions_dict,
+                      actions_dict=actions_dict, sample_rate=sample_rate,
                       num_layers_PG=num_layers_PG, num_layers_R=num_layers_R, num_R=num_R,
                       num_f_maps=num_f_maps, num_epochs=num_epochs, true_labels_dir=true_labels_dir,
                       batch_size=batch_size, lr=lr, features_dim=features_dim,
-                      clogger=clogger, sample_rate=sample_rate,
-					  model_type='mstcn2', sample_size=1,                      
+                      clogger=clogger,
+                      model_type='mstcn2',
                       label_class_weights=False, weighted_flag=False,
                       ridge_reg=False, attention=True,
-                      lstm_att=True)
+                      lstm=False, lstm_att=True, num_layers_lstm_att=num_layers_lstm_att, aggregate=True)
 
     if args.action == "baseline":
         for val_path_fold, test_path_fold, features_path_fold in folds_split_directories:
@@ -208,46 +221,46 @@ def main():
                       features_path_fold=features_path_fold, kinematic_features_path=kinematic_features_path,
                       results_dir=results_dir,
                       model_dir=model_dir,
-                      actions_dict=actions_dict,
+                      actions_dict=actions_dict, sample_rate=sample_rate,
                       num_layers_PG=num_layers_PG, num_layers_R=num_layers_R, num_R=num_R,
                       num_f_maps=num_f_maps, num_epochs=num_epochs, true_labels_dir=true_labels_dir,
                       batch_size=batch_size, lr=lr, features_dim=features_dim,
-                      clogger=clogger, sample_rate=sample_rate,
-                      model_type='mstcn2', sample_size=1,
+                      clogger=clogger,
+                      model_type='mstcn2',
                       label_class_weights=False, weighted_flag=False,
                       ridge_reg=False, attention=False,
-                      lstm_att=False)
+                      lstm=False, lstm_att=False)
 
     if args.action == "mstcn2_concat_kinematic":
         for val_path_fold, test_path_fold, features_path_fold in folds_split_directories:
             run_train(val_path_fold=val_path_fold, test_path_fold=test_path_fold,
-                        features_path_fold=features_path_fold, kinematic_features_path=kinematic_features_path, 
-                        results_dir=results_dir,
-                        model_dir=model_dir,
-                        actions_dict=actions_dict,
-                        num_layers_PG=num_layers_PG, num_layers_R=num_layers_R, num_R=num_R,
-                        num_f_maps=num_f_maps, num_epochs=num_epochs, true_labels_dir=true_labels_dir,
-                        batch_size=batch_size, lr=lr, features_dim=features_dim,
-                        clogger=clogger, sample_rate=sample_rate,
-						label_class_weights=None, weighted_flag=False,
-					  	ridge_reg=False,
-                        model_type='mstcn2', sample_size=1,
-                        concat_kinematic_data=True)
-
-    if args.action == "transformer":
-         for val_path_fold, test_path_fold, features_path_fold in folds_split_directories:
-            run_train(val_path_fold=val_path_fold, test_path_fold=test_path_fold,
-                      features_path_fold=features_path_fold, kinematic_features_path=kinematic_features_path, 
+                      features_path_fold=features_path_fold, kinematic_features_path=kinematic_features_path,
                       results_dir=results_dir,
                       model_dir=model_dir,
-                      actions_dict=actions_dict,
+                      actions_dict=actions_dict, sample_rate=sample_rate,
                       num_layers_PG=num_layers_PG, num_layers_R=num_layers_R, num_R=num_R,
                       num_f_maps=num_f_maps, num_epochs=num_epochs, true_labels_dir=true_labels_dir,
                       batch_size=batch_size, lr=lr, features_dim=features_dim,
-                      clogger=clogger, sample_rate=sample_rate,
-					  label_class_weights=None, weighted_flag=False,
-					  ridge_reg=False,
-                      model_type='asformer', sample_size=1,
+                      clogger=clogger,
+                      label_class_weights=None, weighted_flag=False,
+                      ridge_reg=False,
+                      model_type='mstcn2',
+                      concat_kinematic_data=True)
+
+    if args.action == "transformer":
+        for val_path_fold, test_path_fold, features_path_fold in folds_split_directories:
+            run_train(val_path_fold=val_path_fold, test_path_fold=test_path_fold,
+                      features_path_fold=features_path_fold, kinematic_features_path=kinematic_features_path,
+                      results_dir=results_dir,
+                      model_dir=model_dir,
+                      actions_dict=actions_dict, sample_rate=sample_rate,
+                      num_layers_PG=num_layers_PG, num_layers_R=num_layers_R, num_R=num_R,
+                      num_f_maps=num_f_maps, num_epochs=num_epochs, true_labels_dir=true_labels_dir,
+                      batch_size=batch_size, lr=lr, features_dim=features_dim,
+                      clogger=clogger,
+                      label_class_weights=None, weighted_flag=False,
+                      ridge_reg=False,
+                      model_type='transformer',
                       transformer_params=transformer_params,
                       concat_kinematic_data=False)
 
