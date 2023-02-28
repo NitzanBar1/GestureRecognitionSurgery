@@ -40,7 +40,8 @@ class MS_TCN2_Modified(nn.Module):
             out = R(F.softmax(out, dim=1), current_layer=i, total_layers=len(self.Rs))
             if out.shape[0] > 1:
                 # Aggregated additional attention-lstm layer
-                outputs = torch.cat((outputs, out.unsqueeze(1)), dim=0) # out = out[1].unsqueeze(0)
+                outputs = torch.cat((outputs, out.unsqueeze(1)), dim=0)
+                out = out[0].unsqueeze(0)
             else:
                 outputs = torch.cat((outputs, out.unsqueeze(0)), dim=0)
         return outputs
