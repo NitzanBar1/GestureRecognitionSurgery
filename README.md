@@ -34,7 +34,7 @@ This is a class project as part of 097222 Computer Vision Seminar @ Technion.
 
 ## Dataset
 The data consists of 4 folds, the labels distribution towards the folds is:
-![alt text](https://github.com/NitzanBar1/SurgeryToolsDetection/blob/main/images/folds_table.png)
+![alt text](https://github.com/NitzanBar1/GestureRecognitionSurgery/blob/main/images/folds_table.png)
 
 
 ## Models
@@ -48,19 +48,19 @@ More specifically, that first stage consists of a prediction generator that prod
 
 An illustration of the MSTCN++ architecture is shown below:
 
-![alt text](https://github.com/NitzanBar1/SurgeryToolsDetection/blob/main/images/mstcn2.png)
+![alt text](https://github.com/NitzanBar1/GestureRecognitionSurgery/blob/main/images/mstcn2.png)
 
 
 ## Results
 The models were compiled in Microsoft Azure using PyTorch packages with 10 epochs.   
 **MSTCN++ Baseline Results:**  
 
-![alt text](https://github.com/NitzanBar1/SurgeryToolsDetection/blob/main/images/graphs1.png)
-![alt text](https://github.com/NitzanBar1/SurgeryToolsDetection/blob/main/images/graphs2.png)
-![alt text](https://github.com/NitzanBar1/SurgeryToolsDetection/blob/main/images/baseline_table.png)
+![alt text](https://github.com/NitzanBar1/GestureRecognitionSurgery/blob/main/images/graphs1.png)
+![alt text](https://github.com/NitzanBar1/GestureRecognitionSurgery/blob/main/images/graphs2.png)
+![alt text](https://github.com/NitzanBar1/GestureRecognitionSurgery/blob/main/images/baseline_table.png)
 
 Model detections:  
-![alt text](https://github.com/NitzanBar1/SurgeryToolsDetection/blob/main/images/prediction.png)
+![alt text](https://github.com/NitzanBar1/GestureRecognitionSurgery/blob/main/images/prediction.png)
 
 
 Evaluation metrics:  
