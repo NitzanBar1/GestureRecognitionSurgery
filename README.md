@@ -34,36 +34,7 @@ This is a class project as part of 097222 Computer Vision Seminar @ Technion.
 
 ## Dataset
 The data consists of 4 folds, the labels distribution towards the folds is:
-\begin{center}
-\begin{tabular}[t]{| c | c | c | c | c | c | c |} 
-\hline
- \textbf{Fold} 
- & \textbf{G0} 
- % \\ [0.5ex]
- % \item &  Baseline  \quad Ours
- & \textbf{G1} %\\[0.5ex]
-  & \textbf{G2} %\\[0.5ex]
- & \textbf{G3} %\\[0.5ex]
-  & \textbf{G4} %\\[0.5ex]
-    & \textbf{G5} %\\[0.5ex]
-  \\
- % \item & \quad \quad Baseline \quad \quad \quad Ours \\
- \hline
-\item Fold 0 & 37.17\% & 16.22\%  & 8.75\% & 18.29\% & 16.93\% & 2.61\% \\
- \hline
- \item Fold 1  & 37.17\% & 16.22\%  & 8.75\% & 18.29\% & 16.93\% & 2.61\% \\
- \hline
- \item Fold 2  & 37.17\% & 16.22\%  & 8.75\% & 18.29\% & 16.93\% & 2.61\%\\
- \hline
- \item Fold 3  & 37.17\% & 16.22\%  & 8.75\% & 18.29\% & 16.93\% & 2.61\% \\
- \hline
- \item Fold 4  & 37.17\% & 16.22\%  & 8.75\% & 18.29\% & 16.93\% & 2.61\% \\
- \hline
-
-\end{tabular}
-
-\end{center}
-
+![alt text](https://github.com/NitzanBar1/SurgeryToolsDetection/blob/main/images/folds_table.png)
 
 
 ## Models
@@ -81,16 +52,20 @@ An illustration of the MSTCN++ architecture is shown below:
 
 
 ## Results
-The models were compiled in Microsoft Azure using PyTorch packages with 25 epochs and early stopping.   
+The models were compiled in Microsoft Azure using PyTorch packages with 10 epochs.   
 **MSTCN++ Baseline Results:**  
 
 ![alt text](https://github.com/NitzanBar1/SurgeryToolsDetection/blob/main/images/graphs1.png)
 ![alt text](https://github.com/NitzanBar1/SurgeryToolsDetection/blob/main/images/graphs2.png)
+![alt text](https://github.com/NitzanBar1/SurgeryToolsDetection/blob/main/images/baseline_table.png)
 
 Model detections:  
+![alt text](https://github.com/NitzanBar1/SurgeryToolsDetection/blob/main/images/prediction.png)
 
 
 Evaluation metrics:  
+We adopted three evaluation metrics in our experiments: frame-wise accuracy, edit score, and segmented F1 score. Frame-wise accuracy is to measure the performance in frame level. However, long gesture segments tend to have more impact than short gesture segments, and the frame-wise accuracy is not sensitive to the over-segmentation error. Therefore, we use the edit score and F1 score to assess the model at the segmental level. 
+The edit score is defined as the normalized Levenshtein distance between the prediction and the ground truth. In contrast, F1 score is the harmonic mean of precision and recall with the threshold 10%, 25%, and 50%.
 
 
 ## References
