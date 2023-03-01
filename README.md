@@ -55,9 +55,17 @@ An illustration of the MSTCN++ architecture is shown below:
 The models were compiled in Microsoft Azure using PyTorch packages with 10 epochs.   
 **MSTCN++ Baseline Results:**  
 
-![alt text](https://github.com/NitzanBar1/GestureRecognitionSurgery/blob/main/images/graphs1.png)
-![alt text](https://github.com/NitzanBar1/GestureRecognitionSurgery/blob/main/images/graphs2.png)
+![alt text](https://github.com/NitzanBar1/GestureRecognitionSurgery/blob/main/images/loss_fold0.png)
+![alt text](https://github.com/NitzanBar1/GestureRecognitionSurgery/blob/main/images/f1_fold0.png)
+![alt text](https://github.com/NitzanBar1/GestureRecognitionSurgery/blob/main/images/edit_score_fold0.png)
 ![alt text](https://github.com/NitzanBar1/GestureRecognitionSurgery/blob/main/images/baseline_table.png)
+
+**Suggested Model Results:**  
+
+![alt text](https://github.com/NitzanBar1/GestureRecognitionSurgery/blob/main/images/our_loss_fold0.png)
+![alt text](https://github.com/NitzanBar1/GestureRecognitionSurgery/blob/main/images/our_f1_fold0.png)
+![alt text](https://github.com/NitzanBar1/GestureRecognitionSurgery/blob/main/images/our_edit_score_fold0.png)
+![alt text](https://github.com/NitzanBar1/GestureRecognitionSurgery/blob/main/images/our_baseline_table.png)
 
 Model detections:  
 ![alt text](https://github.com/NitzanBar1/GestureRecognitionSurgery/blob/main/images/prediction.png)
