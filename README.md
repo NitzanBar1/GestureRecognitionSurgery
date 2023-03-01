@@ -76,7 +76,11 @@ The models were compiled in Microsoft Azure using PyTorch packages with 10 epoch
 
 Model detections:  
 ![alt text](https://github.com/NitzanBar1/GestureRecognitionSurgery/blob/main/images/prediction.png)
+https://github.com/NitzanBar1/GestureRecognitionSurgery/blob/main/output_videos/output_videos/P016_balloon1.mp4 
 
+https://github.com/NitzanBar1/GestureRecognitionSurgery/blob/main/output_videos/output_videos/P020_balloon1.mp4 
+
+https://github.com/NitzanBar1/GestureRecognitionSurgery/blob/main/output_videos/output_videos/P022_balloon1.mp4 
 
 Evaluation metrics:  
 We adopted three evaluation metrics in our experiments: frame-wise accuracy, edit score, and segmented F1 score. Frame-wise accuracy is to measure the performance in frame level. However, long gesture segments tend to have more impact than short gesture segments, and the frame-wise accuracy is not sensitive to the over-segmentation error. Therefore, we use the edit score and F1 score to assess the model at the segmental level. 
