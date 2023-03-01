@@ -65,7 +65,7 @@ The models were compiled in Microsoft Azure using PyTorch packages with 10 epoch
 ![alt text](https://github.com/NitzanBar1/GestureRecognitionSurgery/blob/main/images/our_loss_fold0.png)
 ![alt text](https://github.com/NitzanBar1/GestureRecognitionSurgery/blob/main/images/our_f1_fold0.png)
 ![alt text](https://github.com/NitzanBar1/GestureRecognitionSurgery/blob/main/images/our_edit_score_fold0.png)
-![alt text](https://github.com/NitzanBar1/GestureRecognitionSurgery/blob/main/images/our_baseline_table.png)
+![alt text](https://github.com/NitzanBar1/GestureRecognitionSurgery/blob/main/images/our_folds_table.png)
 
 Model detections:  
 ![alt text](https://github.com/NitzanBar1/GestureRecognitionSurgery/blob/main/images/prediction.png)
