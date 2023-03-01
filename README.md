@@ -50,6 +50,13 @@ An illustration of the MSTCN++ architecture is shown below:
 
 ![alt text](https://github.com/NitzanBar1/GestureRecognitionSurgery/blob/main/images/mstcn2.png)
 
+•	**Suggested Model architecture:**  
+We suggested a couple of modifications in the MS-TCN++ architecture, we started with some classic learning techniques by addressing data imbalance using the IPW technique. In addition, we applied regularization techniques by adding the Ridge regularization term to the final loss. Another issue that we addressed in our work is gradient clipping which is an important technique to handle the vanishing/ exploding gradients which may occur in complex architectures.
+Furthermore, we suggested two main modifications in the Refinement phase by adding an attention mechanism that improves the model's ability to learn meaningful representations of the input sequence, by focusing on the most informative parts of the sequence. 
+In addition, we used an up-sampling technique by adding an up-sampling layer to the end of the network. This technique can restore the resolution of the feature maps and increase the effective receptive field of the network to help the model capture more context and make more accurate predictions. Both of these modifications can help the MS-TCN++ architecture to overcome some of its limitations and improve its performance on various tasks.
+
+![alt text](https://github.com/NitzanBar1/GestureRecognitionSurgery/blob/main/images/multi_stage_network.png)
+![alt text](https://github.com/NitzanBar1/GestureRecognitionSurgery/blob/main/images/Presentation1.png)
 
 ## Results
 The models were compiled in Microsoft Azure using PyTorch packages with 10 epochs.   
