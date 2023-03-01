@@ -27,12 +27,42 @@ This is a class project as part of 097222 Computer Vision Seminar @ Technion.
 |`eval.py`| predict and evaluate performence|
 |`model.py`| models defintion|
 |`batch_gen.py`| create batched data|
+|`predcit_on_video.py`| create videos with predictions|
 |`images`| Images used for preview in README.md file|
 
 
 
 ## Dataset
+The data consists of 4 folds, the labels distribution towards the folds is:
+\begin{center}
+\begin{tabular}[t]{| c | c | c | c | c | c | c |} 
+\hline
+ \textbf{Fold} 
+ & \textbf{G0} 
+ % \\ [0.5ex]
+ % \item &  Baseline  \quad Ours
+ & \textbf{G1} %\\[0.5ex]
+  & \textbf{G2} %\\[0.5ex]
+ & \textbf{G3} %\\[0.5ex]
+  & \textbf{G4} %\\[0.5ex]
+    & \textbf{G5} %\\[0.5ex]
+  \\
+ % \item & \quad \quad Baseline \quad \quad \quad Ours \\
+ \hline
+\item Fold 0 & 37.17\% & 16.22\%  & 8.75\% & 18.29\% & 16.93\% & 2.61\% \\
+ \hline
+ \item Fold 1  & 37.17\% & 16.22\%  & 8.75\% & 18.29\% & 16.93\% & 2.61\% \\
+ \hline
+ \item Fold 2  & 37.17\% & 16.22\%  & 8.75\% & 18.29\% & 16.93\% & 2.61\%\\
+ \hline
+ \item Fold 3  & 37.17\% & 16.22\%  & 8.75\% & 18.29\% & 16.93\% & 2.61\% \\
+ \hline
+ \item Fold 4  & 37.17\% & 16.22\%  & 8.75\% & 18.29\% & 16.93\% & 2.61\% \\
+ \hline
 
+\end{tabular}
+
+\end{center}
 
 
 
