@@ -182,10 +182,11 @@ def main():
 
     clogger = task.get_logger()
 
-    print("Starting training!")
-    if args.action == "train_tradeoff":
+    print("Training!")
+    if args.action == "tradeoff":
+        print("Tradeoff experiment")
         for val_path_fold, test_path_fold, features_path_fold in folds_split_directories:
-            for sample_size in [1, 5, 10, 30, 60]:
+            for num_layers_lstm_att in [1, 2, 3]:
                 run_train(val_path_fold=val_path_fold, test_path_fold=test_path_fold,
                           features_path_fold=features_path_fold, kinematic_features_path=kinematic_features_path,
                           results_dir=results_dir,
@@ -194,12 +195,13 @@ def main():
                           num_layers_PG=num_layers_PG, num_layers_R=num_layers_R, num_R=num_R,
                           num_f_maps=num_f_maps, num_epochs=num_epochs, true_labels_dir=true_labels_dir,
                           batch_size=batch_size, lr=lr, features_dim=features_dim,
-                          clogger=clogger,
+                          clogger=clogger, num_layers_lstm_att=num_layers_lstm_att,
                           label_class_weights=True, weighted_flag=False,
                           ridge_reg=True,
                           model_type='mstcn2')
 
     if args.action == "train":
+        print("Train according to the flags")
         for val_path_fold, test_path_fold, features_path_fold in folds_split_directories:
             run_train(val_path_fold=val_path_fold, test_path_fold=test_path_fold,
                       features_path_fold=features_path_fold, kinematic_features_path=kinematic_features_path,
@@ -216,6 +218,7 @@ def main():
                       lstm=False, lstm_att=True, num_layers_lstm_att=num_layers_lstm_att, aggregate=True)
 
     if args.action == "baseline":
+        print("Train - baseline")
         for val_path_fold, test_path_fold, features_path_fold in folds_split_directories:
             run_train(val_path_fold=val_path_fold, test_path_fold=test_path_fold,
                       features_path_fold=features_path_fold, kinematic_features_path=kinematic_features_path,
