@@ -8,7 +8,7 @@ This is a class project as part of 097222 Computer Vision Seminar @ Technion.
     <a href="https://www.linkedin.com/in/nitzan-bar-9ab896146/">Nitzan Bar</a> | 
     <a href="https://www.linkedin.com/in/ido-levi-869a96177/">Ido Levi</a>
 </p> 
-
+    
 
 - [GestureRecognitionSurgery](#gesture-recognition-surgery)
   * [Files in The Repository](#files-in-the-repository)
